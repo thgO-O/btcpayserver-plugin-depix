@@ -1,0 +1,79 @@
+    @using BTCPayServer.Abstractions.Extensions
+    @using BTCPayServer.Plugins.Depix
+    @using Microsoft.AspNetCore.Mvc.TagHelpers
+    @model BTCPayServer.Plugins.Depix.Data.Models.ViewModels.PixStoreViewModel
+
+    @{
+        ViewData.SetActivePage(PixPlugin.PluginNavKey, "DePix Configuration", "Configuration");
+    }
+
+    <form method="post">
+        <div class="sticky-header d-flex align-items-center justify-content-between">
+            <h2 class="mb-0">@ViewData["Title"]</h2>
+            <input type="submit" class="btn btn-primary" value="Save" />
+        </div>
+
+        <partial name="_StatusMessage" />
+
+        <div class="row">
+            <div class="col-md-8">
+                <div class="form-group my-4">
+                    <label asp-for="ApiKey">DePix API Key</label>
+                    <input asp-for="ApiKey" type="text" class="form-control" />
+                    <span asp-validation-for="ApiKey" class="text-danger"></span>
+                </div>
+
+                <div class="card my-4">
+                    <div class="card-header d-flex align-items-center justify-content-between">
+                        <span>Webhook</span>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted mb-3">
+                            Register this webhook on Telegram with Eulen:
+                            <code>/registerwebhook deposit &lt;url&gt; &lt;secret&gt;</code>
+                        </p>
+
+                        <div class="form-group mb-3">
+                            <label asp-for="WebhookUrl">Webhook URL</label>
+                            <div class="input-group">
+                                <input asp-for="WebhookUrl" class="form-control" id="WebhookUrl" readonly />
+                                <button type="button" class="btn btn-outline-secondary"
+                                        data-clipboard-target="#WebhookUrl">
+                                    Copy
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="form-group mb-3">
+                            <label asp-for="WebhookSecretHex">Webhook Secret (hex)</label>
+                            <div class="input-group">
+                                <input asp-for="WebhookSecretHex" class="form-control" id="WebhookSecretHex" readonly />
+                                <button type="button" class="btn btn-outline-secondary"
+                                        data-clipboard-target="#WebhookSecretHex">
+                                    Copy
+                                </button>
+                            </div>
+                            <small class="form-text text-muted">
+                                32 bytes hex (64 chars). If empty, save this page to generate.
+                            </small>
+                        </div>
+
+                        <!-- Telegram command -->
+                        <div class="form-group mb-3">
+                            <label asp-for="TelegramRegisterCommand">Telegram command</label>
+                            <div class="input-group">
+                                <input asp-for="TelegramRegisterCommand" class="form-control" id="TelegramRegisterCommand" readonly />
+                                <button type="button" class="btn btn-outline-secondary"
+                                        data-clipboard-target="#TelegramRegisterCommand">
+                                    Copy
+                                </button>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+
+
