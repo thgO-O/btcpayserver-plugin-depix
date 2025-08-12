@@ -1,0 +1,160 @@
+@using BTCPayServer.Abstractions.Extensions
+@using BTCPayServer.TagHelpers
+@using BTCPayServer.Abstractions.TagHelpers
+@using BTCPayServer.Plugins.Depix
+@using Microsoft.AspNetCore.Mvc.TagHelpers
+@using Microsoft.AspNetCore.Routing
+@model BTCPayServer.Plugins.Depix.Data.Models.ViewModels.PixTransactionsViewModel
+
+@{
+    var storeId = Context.GetRouteValue("storeId")?.ToString();
+
+    ViewData.SetActivePage(PixPlugin.PluginNavKey, "Pix – Transactions", "DepixTransactions");
+
+    var statusFilter = ViewData["StatusFilter"] as string ?? "";
+    var query        = ViewData["Query"] as string ?? "";
+    var from         = ViewData["From"] as string ?? "";
+    var to           = ViewData["To"] as string ?? "";
+
+    string Badge(string s) => (s ?? "").ToLowerInvariant() switch
+        {
+            "depix_sent" => "bg-success",
+            "under_review" => "bg-warning text-dark",
+            "pending" => "bg-secondary",
+            "expired" => "bg-dark",
+            "canceled" or "error" or "refunded" => "bg-danger",
+            _ => "bg-secondary"
+        };
+
+    string Brl(int? cents) => cents is { } v ? (v / 100m).ToString("N2") : "-";
+}
+
+@{ 
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const $btn = document.querySelector('.switch-time-format');
+            if (typeof formatDateTimes === 'function' && $btn) {
+                const mode = $btn.dataset.mode || 'local';
+                formatDateTimes(mode);
+                $btn.addEventListener('click', () => {
+                    const next = $btn.dataset.mode === 'utc' ? 'local' : 'utc';
+                    $btn.dataset.mode = next;
+                    formatDateTimes(next);
+                });
+            }
+        });
+    </script>
+}
+
+<div class="sticky-header">
+</div>
+
+<partial name="_StatusMessage" />
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-3" id="Dropdowns">
+    <form method="get" class="row g-3 align-items-end flex-grow-1" id="Filter">
+        <div class="col-md-2">
+            <label class="form-label" text-translate="true">Status</label>
+            <select name="status" class="form-select">
+                <option value="" text-translate="true">All</option>
+                @foreach (var s in new[] { "depix_sent","under_review","pending","expired","canceled","error","refunded" })
+                {
+                    <option value="@s" selected="@(statusFilter==s)">@s</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-4">
+            <label class="form-label" text-translate="true">Search</label>
+            <input name="q" value="@query" class="form-control" placeholder="InvoiceId, QR ID, Depix Address..." />
+        </div>
+        <div class="col-md-2">
+            <label class="form-label" text-translate="true">From</label>
+            <input type="date" name="from" value="@from" class="form-control" />
+        </div>
+        <div class="col-md-2">
+            <label class="form-label" text-translate="true">To</label>
+            <input type="date" name="to" value="@to" class="form-control" />
+        </div>
+        <div class="col-md-2">
+            <button class="btn btn-primary w-100" type="submit" text-translate="true">Filter</button>
+        </div>
+    </form>
+</div>
+<div style="clear:both"></div>
+
+<div class="table-responsive-md" id="DepixTransactions">
+    <table class="table table-hover align-middle">
+        <thead class="table-light">
+        <tr>
+            <th class="date-col">
+                <div class="d-flex align-items-center gap-1">
+                    <span text-translate="true">Date</span>
+                    <button type="button" class="btn btn-link p-2 switch-time-format only-for-js" title="Switch date format" data-mode="local">
+                        <vc:icon symbol="time" />
+                    </button>
+                </div>
+            </th>
+            <th style="min-width: 210px;">Invoice</th>
+            <th>QR ID</th>
+            <th class="text-end">Amount</th>
+            <th>Status</th>
+            <th>Depix Address</th>
+        </tr>
+        </thead>
+        <tbody>
+        @foreach (var d in Model.Transactions)
+        {
+            var raw = d.DepixStatus?.ToString() ?? d.DepixStatusRaw;
+            <tr>
+                <td class="text-nowrap">
+                    <time datetime="@d.Created.UtcDateTime.ToString("o")">
+                        @d.Created.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+                    </time>
+                </td>
+
+                <td>
+                    <a href="@($"/invoice?id={d.InvoiceId}")" target="_blank" rel="noopener">
+                        @d.InvoiceId
+                    </a>
+                </td>
+
+                <td>
+                    <span class="d-inline-block text-truncate clipboard-button" data-clipboard="@d.QrId"
+                          style="max-width:230px"
+                          data-bs-toggle="tooltip" data-bs-placement="top"
+                          title="@d.QrId">
+                        @d.QrId
+                    </span>
+                </td>
+
+                <td class="text-end">R$ @(Brl(d.ValueInCents))</td>
+
+                <td><span class="badge @Badge(raw)">@raw</span></td>
+
+                <td>
+                    @if (!string.IsNullOrEmpty(d.DepixAddress))
+                    {
+                        <span class="d-inline-block text-truncate clipboard-button"
+                              data-clipboard="@d.DepixAddress"
+                              style="max-width:260px"
+                              data-bs-toggle="tooltip" data-bs-placement="top"
+                              title="@d.DepixAddress">
+                              @d.DepixAddress
+                        </span>
+                    }
+                    else { <span>-</span> }
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
+
+<noscript>
+    @* todo: pagination *@
+</noscript>
+
+<script>
+  document.querySelectorAll('[data-bs-toggle="tooltip"]')
+    .forEach(el => new bootstrap.Tooltip(el));
+</script>
