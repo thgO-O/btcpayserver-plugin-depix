@@ -1,14 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk.Razor">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>BTCPayServer.Plugins.DePix</AssemblyName>
   </PropertyGroup>
 
   <!-- Plugin specific properties -->
   <PropertyGroup>
-    <Product>BTCPay Server Plugin Template</Product>
-    <Description>A template for your own BTCPay Server plugin.</Description>
+    <Product>Decentralized Pix Liquid Integration</Product>
+    <Description>Enables store owners to accept Pix payments automatically converted to Liquid stablecoins using DePix.</Description>
     <Version>1.0.0</Version>
   </PropertyGroup>
+
 
   <!-- Plugin development properties -->
   <PropertyGroup>
@@ -51,7 +53,7 @@
   -->
 
   <ItemGroup>
-    <ProjectReference Include="..\btcpayserver\BTCPayServer\BTCPayServer.csproj" />
+    <ProjectReference Include="..\submodules\btcpayserver\BTCPayServer\BTCPayServer.csproj" />
     <EmbeddedResource Include="Resources\**" />
   </ItemGroup>
 </Project>
