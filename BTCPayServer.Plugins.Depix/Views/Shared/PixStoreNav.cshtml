@@ -1,0 +1,34 @@
+@using BTCPayServer.Abstractions.Contracts
+@using BTCPayServer.Data
+@using BTCPayServer.Plugins.Depix.Services
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Mvc.TagHelpers
+@inject SignInManager<ApplicationUser> SignInManager;
+@inject IScopeProvider ScopeProvider
+@inject DepixService DepixService
+@{
+    var storeId = ScopeProvider.GetCurrentStoreId();
+}
+@if (SignInManager.IsSignedIn(User) && !string.IsNullOrEmpty(storeId))
+{
+    var isEnabled = await DepixService.DePixEnabled(storeId);
+    
+    <li class="nav-item">
+        <a class="nav-link @(isEnabled ? "active" : "")"
+           asp-route-storeId="@storeId"
+           asp-action="StoreConfig"
+           asp-controller="Pix">
+            <span class="me-2 btcpay-status btcpay-status--@(isEnabled ? "enabled" : "pending")"></span>
+            <span>Pix</span>
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link @(isEnabled ? "active" : "")"
+           asp-route-storeId="@storeId"
+           asp-action="PixTransactions"
+           asp-controller="Pix">
+            <svg role="img" class="icon"></svg>
+            <span>Transactions</span>
+        </a>
+    </li>
+}

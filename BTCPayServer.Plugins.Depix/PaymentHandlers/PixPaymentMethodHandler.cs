@@ -1,0 +1,80 @@
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using BTCPayServer.Data;
+using BTCPayServer.Payments;
+using BTCPayServer.Payments.Bitcoin;
+using BTCPayServer.Plugins.Altcoins;
+using BTCPayServer.Plugins.Depix.Services;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json.Linq;
+using JsonSerializer = Newtonsoft.Json.JsonSerializer;
+
+namespace BTCPayServer.Plugins.Depix.PaymentHandlers;
+public class PixPaymentMethodHandler(
+    BTCPayNetworkProvider networkProvider,
+    DepixService depixService,
+    ILogger<PixPaymentMethodHandler> logger,
+    ISecretProtector secretProtector)
+    : IPaymentMethodHandler, IHasNetwork
+{
+    public PaymentMethodId PaymentMethodId => PixPlugin.PixPmid;
+    public BTCPayNetwork Network { get; } = networkProvider.GetNetwork<ElementsBTCPayNetwork>("DePix");
+
+    public Task BeforeFetchingRates(PaymentMethodContext context)
+    {
+        context.Prompt.Currency = "BRL";
+        context.Prompt.Divisibility = 2;
+        context.Prompt.PaymentMethodFee = 1.00m;
+        return Task.CompletedTask;
+    }
+
+    public async Task ConfigurePrompt(PaymentMethodContext context)
+    {
+        logger.LogInformation("[DePix] ConfigurePrompt invoice {InvoiceId}", context.InvoiceEntity.Id);
+
+        var store = context.Store;
+        if (ParsePaymentMethodConfig(store.GetPaymentMethodConfigs()[PaymentMethodId]) is not PixPaymentMethodConfig pixCfg)
+            throw new PaymentMethodUnavailableException("DePix payment method not configured");
+
+        var apiKey = secretProtector.Unprotect(pixCfg.EncryptedApiKey ?? "");
+        if (string.IsNullOrWhiteSpace(apiKey))
+            throw new PaymentMethodUnavailableException("DePix API key not configured");
+
+        var amountInBrl = context.Prompt.Calculate().Due; // decimal BRL
+        var amountInCents = (int)Math.Round(amountInBrl * 100m, MidpointRounding.AwayFromZero);
+
+        using var client = depixService.CreateDepixClient(apiKey);
+
+        var address = await depixService.GenerateFreshDePixAddress(store.Id);
+
+        var deposit = await depixService.RequestDepositAsync(client, amountInCents, address, CancellationToken.None);
+
+        depixService.ApplyPromptDetails(context, deposit, address);
+
+        logger.LogInformation("[DePix] ConfigurePrompt finished for invoice {InvoiceId}", context.InvoiceEntity.Id);
+    }
+    
+    public JsonSerializer Serializer { get; } = BlobSerializer.CreateSerializer().Serializer;
+    
+    public object ParsePaymentPromptDetails(JToken details)
+    {
+        return details.ToObject<DePixPaymentMethodDetails>(Serializer);
+    }
+
+    public object ParsePaymentMethodConfig(JToken config)
+    {
+        return config.ToObject<PixPaymentMethodConfig>(Serializer) ??
+               throw new FormatException($"Invalid {nameof(PixPaymentMethodHandler)}");
+    }
+
+    public object ParsePaymentDetails(JToken details)
+    {
+        return details.ToObject<DePixPaymentData>(Serializer) ??
+               throw new FormatException($"Invalid {nameof(PixPaymentMethodHandler)}");
+    }
+}
+
+public class DePixPaymentData;
+
+public class DePixPaymentMethodDetails;

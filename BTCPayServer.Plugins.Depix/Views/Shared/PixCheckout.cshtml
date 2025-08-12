@@ -1,0 +1,38 @@
+<template id="PixCheckout">
+    <div class="payment-box text-center">
+        <img
+            :src="model.invoiceBitcoinUrlQR"
+            class="img-fluid d-block mx-auto my-3"
+        />
+        <p class="mb-3">Scan the QR code with your Pix app to pay</p>
+
+        <div class="input-group mb-3">
+            <label class="form-label text-uppercase text-muted small fw-semibold">
+                PIX Copy and Paste
+            </label>
+            <span
+                class="truncate-center-truncated me-3"
+                :title="model.invoiceBitcoinUrl"
+                data-bs-toggle="tooltip">
+                <span class="truncate-center-start">
+                    {{ model.invoiceBitcoinUrl.substring(0, 22) }}
+                </span>
+                <span class="truncate-center-end">
+                    {{ model.invoiceBitcoinUrl.slice(-12) }}
+                </span>
+            </span>
+            <button type="button" class="btn btn-link d-flex p-0 clipboard-button" :data-clipboard="model.invoiceBitcoinUrl">
+                <vc:icon symbol="actions-copy"/>
+            </button>
+        </div>
+
+
+    </div>
+</template>
+
+<script>
+    Vue.component("PixCheckout", {
+        props: ["model"],
+        template: "#PixCheckout"
+    });
+</script>
