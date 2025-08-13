@@ -1,3 +1,4 @@
+#nullable enable
 using BTCPayServer.Services;
 
 namespace BTCPayServer.Plugins.Depix.PaymentHandlers;
