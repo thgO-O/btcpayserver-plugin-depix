@@ -1,4 +1,6 @@
+#nullable enable
 using System;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Http;
@@ -24,5 +26,40 @@ public static class Utils
     {
         var raw = $"{user}:{pass}";
         return Convert.ToBase64String(Encoding.UTF8.GetBytes(raw));
+    }
+    
+    public static string ComputeSecretHash(string secretPlain)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(secretPlain ?? ""));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+    
+    public static string? ExtractSecretFromBasic(string parameter)
+    {
+        if (parameter.Length >= 32 && parameter.All(c => !char.IsWhiteSpace(c)))
+            return parameter;
+
+        try
+        {
+            var bytes = Convert.FromBase64String(parameter);
+            var decoded = Encoding.UTF8.GetString(bytes);
+            var parts = decoded.Split(':', 2);
+            if (parts.Length == 2) return parts[1];
+        }
+        catch { /* ignore */ }
+
+        return null;
+    }
+
+    public static bool FixedEqualsHex(string hexA, string hexB)
+    {
+        if (hexA.Length != hexB.Length) return false;
+        try
+        {
+            var a = Convert.FromHexString(hexA);
+            var b = Convert.FromHexString(hexB);
+            return CryptographicOperations.FixedTimeEquals(a, b);
+        }
+        catch { return false; }
     }
 }
