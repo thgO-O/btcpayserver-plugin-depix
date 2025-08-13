@@ -33,83 +33,83 @@ public class PixController(
         var pmid = PixPlugin.PixPmid;
         var cfg = StoreData.GetPaymentMethodConfig<PixPaymentMethodConfig>(pmid, handlers);
         var enabled = await depixService.DePixEnabled(StoreData.Id);
-
         var webhookUrl = Utils.BuildWebhookUrl(Request, StoreData.Id);
-        var secret = cfg?.WebhookSecretHex; 
-        
-        var hasApiKey = !string.IsNullOrEmpty(cfg?.EncryptedApiKey);
-        var masked = string.Empty;
-        
-        if (hasApiKey)
+
+        var maskedApiKey = "";
+        if (!string.IsNullOrEmpty(cfg?.EncryptedApiKey))
         {
-            var plain = protector.Unprotect(cfg?.EncryptedApiKey);
+            var plain = protector.Unprotect(cfg.EncryptedApiKey);
             if (!string.IsNullOrEmpty(plain))
-                masked = "••••••••" + plain[^4..];
+                maskedApiKey = "••••••••" + plain[^4..];
         }
 
+        var oneShotSecret = TempData["OneShotSecret"] as string;
+
+        string secretDisplay;
+        if (!string.IsNullOrEmpty(oneShotSecret))
+            secretDisplay = "";
+        else if (!string.IsNullOrEmpty(cfg?.WebhookSecretHashHex))
+            secretDisplay = "<stored securely – regenerate to view a new one>";
+        else
+            secretDisplay = "<will be generated on Save>";
+        
         var model = new PixStoreViewModel
         {
-            Enabled = enabled,
-            ApiKey = hasApiKey ? masked : string.Empty,
-            WebhookUrl = webhookUrl,
-            WebhookSecretHex = secret ?? "<will be generated on Save>",
-            TelegramRegisterCommand = secret is null
-                ? $"/registerwebhook deposit {webhookUrl} <SECRET_WILL_BE_GENERATED>"
-                : $"/registerwebhook deposit {webhookUrl} {secret}"
+            Enabled                = enabled,
+            ApiKey                 = maskedApiKey,
+            WebhookUrl             = webhookUrl,
+            WebhookSecretDisplay   = secretDisplay,
+            OneShotSecretToDisplay = oneShotSecret,
+            RegenerateWebhookSecret = false,
+            TelegramRegisterCommand = string.IsNullOrEmpty(oneShotSecret)
+                ? null
+                : $"/registerwebhook deposit {webhookUrl} {oneShotSecret}"
         };
 
         return View(model);
     }
-    
-    /// <summary>
-    /// Api route for setting plugin configuration for this store
-    /// </summary>
-    [HttpPost]
-    public async Task<IActionResult> StoreConfig(
-        PixStoreViewModel viewModel, string storeId)
+
+
+   [HttpPost]
+    public async Task<IActionResult> StoreConfig(PixStoreViewModel viewModel, string storeId)
     {
-        var store = StoreData;
-        var blob  = store.GetStoreBlob();
+        var blob  = StoreData.GetStoreBlob();
         var pmid  = PixPlugin.PixPmid;
 
-        var isEnabled = await depixService.DePixEnabled(store.Id);
+        var isEnabled = await depixService.DePixEnabled(StoreData.Id);
         blob.SetExcluded(pmid, !isEnabled);
+
+        string? oneShotSecretToDisplay = null;
 
         if (isEnabled)
         {
-            var cfg = store.GetPaymentMethodConfig<PixPaymentMethodConfig>(pmid, handlers)
-                     ?? new PixPaymentMethodConfig();
+            var cfg = StoreData.GetPaymentMethodConfig<PixPaymentMethodConfig>(pmid, handlers)
+                      ?? new PixPaymentMethodConfig();
 
-            if (!string.IsNullOrWhiteSpace(viewModel.ApiKey))
-            {
+            if (!string.IsNullOrWhiteSpace(viewModel.ApiKey) && !viewModel.ApiKey.Contains('•'))
                 cfg.EncryptedApiKey = protector.Protect(viewModel.ApiKey.Trim());
+            
+            if (string.IsNullOrEmpty(cfg.WebhookSecretHashHex) || viewModel.RegenerateWebhookSecret)
+            {
+                var newSecret = Utils.GenerateHexSecret32();
+                cfg.WebhookSecretHashHex = Utils.ComputeSecretHash(newSecret);
+                oneShotSecretToDisplay = newSecret;
             }
 
-            if (string.IsNullOrEmpty(cfg.WebhookSecretHex))
-                cfg.WebhookSecretHex = Utils.GenerateHexSecret32();
-
-            store.SetPaymentMethodConfig(handlers[pmid], cfg);
+            StoreData.SetPaymentMethodConfig(handlers[pmid], cfg);
         }
 
-        store.SetStoreBlob(blob);
-        await storeRepository.UpdateStore(store);
+        StoreData.SetStoreBlob(blob);
+        await storeRepository.UpdateStore(StoreData);
 
-        var saved = store.GetPaymentMethodConfig<PixPaymentMethodConfig>(pmid, handlers);
-        var webhookUrl = Utils.BuildWebhookUrl(Request, store.Id);
+        if (!string.IsNullOrEmpty(oneShotSecretToDisplay))
+            TempData["OneShotSecret"] = oneShotSecretToDisplay;
 
-        TempData[WellKnownTempData.SuccessMessage] = "Configuração do DePix aplicada.";
-
-        var model = new PixStoreViewModel
-        {
-            Enabled = isEnabled,
-            ApiKey = string.IsNullOrEmpty(saved?.EncryptedApiKey) ? "" : "••••••••••",
-            WebhookUrl = webhookUrl,
-            WebhookSecretHex = saved?.WebhookSecretHex,
-            TelegramRegisterCommand = $"/registerwebhook deposit {webhookUrl} {saved?.WebhookSecretHex}"
-        };
-
-        return View(model);
+        TempData[WellKnownTempData.SuccessMessage] = "Depix configuration applied";
+        return RedirectToAction(nameof(StoreConfig), new { storeId });
     }
+
+
     
     [HttpGet("~/plugins/depix/{storeId}/transactions")]
     public async Task<IActionResult> PixTransactions(PixTxQueryRequest query, string storeId, CancellationToken ct)
