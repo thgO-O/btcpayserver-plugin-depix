@@ -1,3 +1,9 @@
 [submodule "btcpayserver"]
 	path = btcpayserver
 	url = https://github.com/btcpayserver/btcpayserver
+[submodule "submodules/liquidplus"]
+	path = submodules/liquidplus
+	url = https://github.com/Kukks/BTCPayServerPlugins.git
+[submodule "BTCPayServerPlugins"]
+	path = BTCPayServerPlugins
+	url = https://github.com/Kukks/BTCPayServerPlugins.git

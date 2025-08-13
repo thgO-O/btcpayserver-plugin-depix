@@ -1,0 +1,5 @@
+{
+    "maxParallelThreads": 4,
+    "longRunningTestSeconds": 60,
+    "methodDisplay": "method"
+}
