@@ -16,19 +16,10 @@
     <li class="nav-item">
         <a class="nav-link @(isEnabled ? "active" : "")"
            asp-route-storeId="@storeId"
-           asp-action="StoreConfig"
+           asp-action="PixTransactions"
            asp-controller="Pix">
             <span class="me-2 btcpay-status btcpay-status--@(isEnabled ? "enabled" : "pending")"></span>
             <span>Pix</span>
-        </a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link @(isEnabled ? "active" : "")"
-           asp-route-storeId="@storeId"
-           asp-action="PixTransactions"
-           asp-controller="Pix">
-            <svg role="img" class="icon"></svg>
-            <span>Transactions</span>
         </a>
     </li>
 }

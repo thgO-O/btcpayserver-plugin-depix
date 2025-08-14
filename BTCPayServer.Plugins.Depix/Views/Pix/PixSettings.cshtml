@@ -1,10 +1,23 @@
+@using BTCPayServer
 @using BTCPayServer.Abstractions.Extensions
-@using BTCPayServer.Plugins.Depix
 @using Microsoft.AspNetCore.Mvc.TagHelpers
 @model BTCPayServer.Plugins.Depix.Data.Models.ViewModels.PixStoreViewModel
 
 @{
-    ViewData.SetActivePage(PixPlugin.PluginNavKey, "DePix Configuration", "Configuration");
+    WalletId? wid = null;
+    var q = Context.Request.Query["walletId"].ToString();
+    if (!string.IsNullOrEmpty(q) && WalletId.TryParse(q, out var parsed))
+        wid = parsed;
+
+    if (wid is not null)
+    {
+        ViewData.SetActivePage(
+            activePage: "PixSettings",                                             
+            category: typeof(BTCPayServer.Views.Wallets.WalletsNavPages).ToString(),
+            title: "Pix Settings",                                                  
+            activeId: wid.ToString()                                                
+        );
+    }
 }
 
 <form method="post">
