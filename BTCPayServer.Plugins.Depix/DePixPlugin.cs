@@ -36,6 +36,7 @@ public class DePixPlugin : BaseBTCPayServerPlugin
 
         plugins.AddUIExtension("store-wallets-nav", "PixStoreNav");
         plugins.AddUIExtension("checkout-payment", "PixCheckout");
+        plugins.AddUIExtension("wallet-nav", "DePixWalletNav");
 
         using var sp = plugins.BuildServiceProvider();
         var depixService = sp.GetRequiredService<DepixService>();

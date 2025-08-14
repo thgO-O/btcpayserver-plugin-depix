@@ -1,0 +1,48 @@
+@using BTCPayServer
+@using BTCPayServer.Abstractions.Extensions
+@using Microsoft.AspNetCore.Mvc.TagHelpers
+
+@{
+    WalletId? walletId = null;
+
+    if (ViewContext.RouteData.Values.TryGetValue("walletId", out var ridObj) &&
+             ridObj is string ridStr && !string.IsNullOrWhiteSpace(ridStr) &&
+             WalletId.TryParse(ridStr, out var ridParsed))
+        walletId = ridParsed;
+    // query: ?walletId=S-...-DEPIX
+    else
+    {
+        var q = Context.Request.Query["walletId"].ToString();
+        if (!string.IsNullOrWhiteSpace(q) && WalletId.TryParse(q, out var qParsed))
+            walletId = qParsed;
+    }
+
+    // fallback for /stores/{storeId}/onchain/DePix/settings:
+    if (walletId is null)
+    {
+        var storeId    = ViewContext.RouteData.Values["storeId"]   as string;
+        var cryptoCode = ViewContext.RouteData.Values["cryptoCode"] as string;
+
+        if (!string.IsNullOrWhiteSpace(storeId) &&
+            !string.IsNullOrWhiteSpace(cryptoCode) &&
+            cryptoCode.Equals("DePix", StringComparison.OrdinalIgnoreCase))
+        {
+            var guess = $"S-{storeId}-{cryptoCode.ToUpperInvariant()}";
+            if (WalletId.TryParse(guess, out var parsed))
+                walletId = parsed;
+        }
+    }
+}
+
+@if (walletId != null && walletId.CryptoCode.Equals("DePix", StringComparison.OrdinalIgnoreCase))
+{
+    <li class="nav-item">
+        <a class="nav-link nav-item-sub @ViewData.ActivePageClass("PixSettings", typeof(BTCPayServer.Views.Wallets.WalletsNavPages).ToString())"
+           asp-controller="Pix" asp-action="PixSettings"
+           asp-route-storeId="@walletId.StoreId"
+           asp-route-walletId="@walletId.ToString()">
+            <span class="icon"><i class="fa fa-key"></i></span>
+            <span>Pix Settings</span>
+        </a>
+    </li>
+}
