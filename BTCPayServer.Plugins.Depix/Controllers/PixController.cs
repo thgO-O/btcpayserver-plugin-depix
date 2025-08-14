@@ -28,12 +28,13 @@ public class PixController(
     private StoreData StoreData => HttpContext.GetStoreData();
     
     [HttpGet]
-    public async Task<IActionResult> StoreConfig(string storeId)
+    public async Task<IActionResult> PixSettings(string storeId)
     {
-        var pmid = PixPlugin.PixPmid;
+        var pmid = DePixPlugin.PixPmid;
         var cfg = StoreData.GetPaymentMethodConfig<PixPaymentMethodConfig>(pmid, handlers);
         var enabled = await depixService.DePixEnabled(StoreData.Id);
         var webhookUrl = Utils.BuildWebhookUrl(Request, StoreData.Id);
+        
 
         var maskedApiKey = "";
         if (!string.IsNullOrEmpty(cfg?.EncryptedApiKey))
@@ -69,9 +70,8 @@ public class PixController(
         return View(model);
     }
 
-
    [HttpPost]
-    public async Task<IActionResult> StoreConfig(PixStoreViewModel viewModel, string storeId)
+    public async Task<IActionResult> PixSettings(PixStoreViewModel viewModel, string storeId)
     {
         var blob  = StoreData.GetStoreBlob();
         var pmid  = DePixPlugin.PixPmid;
@@ -106,10 +106,8 @@ public class PixController(
             TempData["OneShotSecret"] = oneShotSecretToDisplay;
 
         TempData[WellKnownTempData.SuccessMessage] = "Depix configuration applied";
-        return RedirectToAction(nameof(StoreConfig), new { storeId });
+        return RedirectToAction(nameof(PixSettings), new { storeId });
     }
-
-
     
     [HttpGet("~/plugins/depix/{storeId}/transactions")]
     public async Task<IActionResult> PixTransactions(PixTxQueryRequest query, string storeId, CancellationToken ct)
