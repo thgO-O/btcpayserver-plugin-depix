@@ -4,7 +4,7 @@ namespace BTCPayServer.Plugins.Depix.PaymentHandlers;
 public class PixCheckoutModelExtension : ICheckoutModelExtension
 {
     private const string CheckoutBodyComponentName = "PixCheckout";
-    public PaymentMethodId PaymentMethodId => PixPlugin.PixPmid;
+    public PaymentMethodId PaymentMethodId => DePixPlugin.PixPmid;
     public string Image => "Resources/img/depix.svg";
     public string Badge => "🇧🇷";
     

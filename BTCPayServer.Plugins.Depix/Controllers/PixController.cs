@@ -74,7 +74,7 @@ public class PixController(
     public async Task<IActionResult> StoreConfig(PixStoreViewModel viewModel, string storeId)
     {
         var blob  = StoreData.GetStoreBlob();
-        var pmid  = PixPlugin.PixPmid;
+        var pmid  = DePixPlugin.PixPmid;
 
         var isEnabled = await depixService.DePixEnabled(StoreData.Id);
         blob.SetExcluded(pmid, !isEnabled);
