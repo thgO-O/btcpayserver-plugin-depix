@@ -18,7 +18,7 @@ public class PixPaymentMethodHandler(
     ISecretProtector secretProtector)
     : IPaymentMethodHandler, IHasNetwork
 {
-    public PaymentMethodId PaymentMethodId => PixPlugin.PixPmid;
+    public PaymentMethodId PaymentMethodId => DePixPlugin.PixPmid;
     public BTCPayNetwork Network { get; } = networkProvider.GetNetwork<ElementsBTCPayNetwork>("DePix");
 
     public Task BeforeFetchingRates(PaymentMethodContext context)

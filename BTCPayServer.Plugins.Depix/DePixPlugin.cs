@@ -2,15 +2,14 @@
 using BTCPayServer.Abstractions.Models;
 using BTCPayServer.Hosting;
 using BTCPayServer.Payments;
-using BTCPayServer.Plugins.Depix.Data;
 using BTCPayServer.Plugins.Depix.PaymentHandlers;
 using BTCPayServer.Plugins.Depix.Services;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace BTCPayServer.Plugins.Depix;
-public class PixPlugin : BaseBTCPayServerPlugin
+public class DePixPlugin : BaseBTCPayServerPlugin
 {
-    public const string PluginNavKey = nameof(PixPlugin) + "Nav";
+    public const string PluginNavKey = nameof(DePixPlugin) + "Nav";
     public override IBTCPayServerPlugin.PluginDependency[] Dependencies { get; } =
     [
         new() { Identifier = nameof(BTCPayServer), Condition = ">=2.1.6" },

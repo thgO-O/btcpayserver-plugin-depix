@@ -248,7 +248,7 @@ public class DepixService(
                 return;
             }
 
-            var pmid = PixPlugin.PixPmid;
+            var pmid = DePixPlugin.PixPmid;
             var pixPrompt = entity.GetPaymentPrompt(pmid);
             if (pixPrompt is null)
             {
@@ -307,7 +307,7 @@ public class DepixService(
     
     public PixPaymentMethodConfig? GetPixConfig(StoreData store, PaymentMethodHandlerDictionary handlers)
     {
-        var pmid = PixPlugin.PixPmid;
+        var pmid = DePixPlugin.PixPmid;
         var configs = store.GetPaymentMethodConfigs();
 
         if (!configs.TryGetValue(pmid, out var raw))
@@ -383,7 +383,7 @@ public class DepixService(
             AssetId           = new uint256("02f22f8d9c76ab41661a2729e4752e2c5d1a263012141b86ea98af5472df5189"),
             DisplayName       = "DePix",
             NBXplorerNetwork  = lbtc,
-            CryptoImagePath   = "Resources/img/depix.svg",
+            CryptoImagePath   = "~/Resources/img/depix.svg",
             DefaultSettings   = BTCPayDefaultSettings.GetDefaultSettings(chainName),
             CoinType          = chainName == ChainName.Mainnet ? new KeyPath("1776'") : new KeyPath("1'"),
             SupportRBF        = true,

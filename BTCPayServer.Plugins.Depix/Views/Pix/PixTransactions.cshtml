@@ -9,7 +9,7 @@
 @{
     var storeId = Context.GetRouteValue("storeId")?.ToString();
 
-    ViewData.SetActivePage(PixPlugin.PluginNavKey, "Pix – Transactions", "DepixTransactions");
+    ViewData.SetActivePage(DePixPlugin.PluginNavKey, "Pix – Transactions", "DepixTransactions");
 
     var statusFilter = ViewData["StatusFilter"] as string ?? "";
     var query        = ViewData["Query"] as string ?? "";
