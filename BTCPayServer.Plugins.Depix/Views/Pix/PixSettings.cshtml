@@ -4,18 +4,20 @@
 @model BTCPayServer.Plugins.Depix.Data.Models.ViewModels.PixStoreViewModel
 
 @{
-    WalletId? wid = null;
-    var q = Context.Request.Query["walletId"].ToString();
-    if (!string.IsNullOrEmpty(q) && WalletId.TryParse(q, out var parsed))
-        wid = parsed;
+    #nullable enable
+    
+    WalletId? walletId = null;
+    var queryWalletId = Context.Request.Query["walletId"].ToString();
+    if (!string.IsNullOrEmpty(queryWalletId) && WalletId.TryParse(queryWalletId, out var parsedWalletId))
+        walletId = parsedWalletId;
 
-    if (wid is not null)
+    if (walletId is not null)
     {
         ViewData.SetActivePage(
             activePage: "PixSettings",                                             
             category: typeof(BTCPayServer.Views.Wallets.WalletsNavPages).ToString(),
             title: "Pix Settings",                                                  
-            activeId: wid.ToString()                                                
+            activeId: walletId.ToString()                                                
         );
     }
 }

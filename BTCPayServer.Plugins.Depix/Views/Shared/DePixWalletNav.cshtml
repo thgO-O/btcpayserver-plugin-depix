@@ -3,24 +3,24 @@
 @using Microsoft.AspNetCore.Mvc.TagHelpers
 
 @{
+    #nullable enable
     WalletId? walletId = null;
 
-    if (ViewContext.RouteData.Values.TryGetValue("walletId", out var ridObj) &&
-             ridObj is string ridStr && !string.IsNullOrWhiteSpace(ridStr) &&
-             WalletId.TryParse(ridStr, out var ridParsed))
-        walletId = ridParsed;
-    // query: ?walletId=S-...-DEPIX
-    else
+    if (ViewContext.RouteData.Values["walletId"] is string walletIdStr &&
+        WalletId.TryParse(walletIdStr, out var parsedWalletId))
     {
-        var q = Context.Request.Query["walletId"].ToString();
-        if (!string.IsNullOrWhiteSpace(q) && WalletId.TryParse(q, out var qParsed))
-            walletId = qParsed;
+        walletId = parsedWalletId;
+    }
+    else // query: ?walletId=S-...-DEPIX
+    {
+        var queryWalletId = Context.Request.Query["walletId"].ToString();
+        if (!string.IsNullOrWhiteSpace(queryWalletId) && WalletId.TryParse(queryWalletId, out var queryParsedWalletId))
+            walletId = queryParsedWalletId;
     }
 
-    // fallback for /stores/{storeId}/onchain/DePix/settings:
-    if (walletId is null)
+    if (walletId is null) // fallback for /stores/{storeId}/onchain/DePix/settings:
     {
-        var storeId    = ViewContext.RouteData.Values["storeId"]   as string;
+        var storeId    = ViewContext.RouteData.Values["storeId"] as string;
         var cryptoCode = ViewContext.RouteData.Values["cryptoCode"] as string;
 
         if (!string.IsNullOrWhiteSpace(storeId) &&
