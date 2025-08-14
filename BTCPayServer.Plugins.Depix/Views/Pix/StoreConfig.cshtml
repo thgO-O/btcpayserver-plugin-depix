@@ -30,90 +30,93 @@
                 </small>
             </div>
 
-            <div class="card my-4">
-                <div class="card-header d-flex align-items-center justify-content-between">
-                    <span>Webhook</span>
-                </div>
-                <div class="card-body">
-                    <p class="text-muted mb-3">
-                        Register this webhook on Telegram with Eulen:
-                        <code>/registerwebhook deposit &lt;url&gt; &lt;secret&gt;</code>
-                    </p>
-
-                    <div class="form-group mb-3">
-                        <label asp-for="WebhookUrl">Webhook URL</label>
-                        <div class="input-group">
-                            <input asp-for="WebhookUrl" class="form-control" id="WebhookUrl" readonly />
-                            <button type="button" class="btn btn-outline-secondary"
-                                    data-clipboard-target="#WebhookUrl">
-                                Copy
-                            </button>
-                        </div>
+        @if (!string.IsNullOrEmpty(Model.ApiKey))
+            {
+                <div class="card my-4">
+                    <div class="card-header d-flex align-items-center justify-content-between">
+                        <span>Webhook</span>
                     </div>
-
-                    @if (!string.IsNullOrEmpty(Model.OneShotSecretToDisplay))
-                    {
-                        <div class="alert alert-warning">
-                            <strong>Copy this secret now.</strong> It will not be shown again.
-                        </div>
-
-                        <div class="form-group mb-3">
-                            <label>Webhook Secret (one‑time view)</label>
-                            <div class="input-group">
-                                <input value="@Model.OneShotSecretToDisplay" class="form-control" id="OneShotSecret" readonly />
-                                <button type="button" class="btn btn-outline-secondary"
-                                        data-clipboard-target="#OneShotSecret">
-                                    Copy
-                                </button>
-                            </div>
-                            <small class="form-text text-muted">
-                                32 bytes hex (64 chars).
-                            </small>
-                        </div>
+                    <div class="card-body">
+                        <p class="text-muted mb-3">
+                            Register this webhook on Telegram with Eulen:
+                            <code>/registerwebhook deposit &lt;url&gt; &lt;secret&gt;</code>
+                        </p>
 
                         <div class="form-group mb-3">
-                            <label>Telegram command</label>
+                            <label asp-for="WebhookUrl">Webhook URL</label>
                             <div class="input-group">
-                                <input value="/registerwebhook deposit @Model.WebhookUrl @Model.OneShotSecretToDisplay"
-                                       class="form-control" id="TelegramRegisterCommand" readonly />
+                                <input asp-for="WebhookUrl" class="form-control" id="WebhookUrl" readonly/>
                                 <button type="button" class="btn btn-outline-secondary"
-                                        data-clipboard-target="#TelegramRegisterCommand">
+                                        data-clipboard-target="#WebhookUrl">
                                     Copy
                                 </button>
                             </div>
                         </div>
-                    }
-                    else
-                    {
-                        <div class="form-group mb-3">
-                            <label>Webhook Secret</label>
-                            <input value="@Model.WebhookSecretDisplay" class="form-control" id="WebhookSecretDisplay" readonly />
-                            <small class="form-text text-muted">
-                                If empty, Save to generate. If you lost it, check “Regenerate secret” and Save to get a new one‑time secret.
-                            </small>
-                        </div>
 
-                        <div class="form-check mb-3">
-                            <input class="form-check-input" asp-for="RegenerateWebhookSecret" id="RegenerateWebhookSecret" type="checkbox" />
-                            <label class="form-check-label" for="RegenerateWebhookSecret">
-                                Regenerate secret on save
-                            </label>
-                        </div>
-
-                        <div class="form-group mb-3">
-                            <label>Telegram command</label>
-                            <div class="input-group">
-                                <input value="/registerwebhook deposit @Model.WebhookUrl <SECRET_WILL_BE_GENERATED>"
-                                       class="form-control" id="TelegramRegisterCommand" readonly />
-                                <button type="button" class="btn btn-outline-secondary"
-                                        data-clipboard-target="#TelegramRegisterCommand">
-                                    Copy
-                                </button>
+                        @if (!string.IsNullOrEmpty(Model.OneShotSecretToDisplay))
+                        {
+                            <div class="alert alert-warning">
+                                <strong>Copy this secret now.</strong> It will not be shown again.
                             </div>
-                        </div>
-                    }
+
+                            <div class="form-group mb-3">
+                                <label>Webhook Secret (one‑time view)</label>
+                                <div class="input-group">
+                                    <input value="@Model.OneShotSecretToDisplay" class="form-control" id="OneShotSecret" readonly/>
+                                    <button type="button" class="btn btn-outline-secondary"
+                                            data-clipboard-target="#OneShotSecret">
+                                        Copy
+                                    </button>
+                                </div>
+                                <small class="form-text text-muted">
+                                    32 bytes hex (64 chars).
+                                </small>
+                            </div>
+
+                            <div class="form-group mb-3">
+                                <label>Telegram command</label>
+                                <div class="input-group">
+                                    <input value="/registerwebhook deposit @Model.WebhookUrl @Model.OneShotSecretToDisplay"
+                                           class="form-control" id="TelegramRegisterCommand" readonly/>
+                                    <button type="button" class="btn btn-outline-secondary"
+                                            data-clipboard-target="#TelegramRegisterCommand">
+                                        Copy
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="form-group mb-3">
+                                <label>Webhook Secret</label>
+                                <input value="@Model.WebhookSecretDisplay" class="form-control" id="WebhookSecretDisplay" readonly/>
+                                <small class="form-text text-muted">
+                                    If empty, Save to generate. If you lost it, check “Regenerate secret” and Save to get a new one‑time secret.
+                                </small>
+                            </div>
+
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" asp-for="RegenerateWebhookSecret" id="RegenerateWebhookSecret" type="checkbox"/>
+                                <label class="form-check-label" for="RegenerateWebhookSecret">
+                                    Regenerate secret on save
+                                </label>
+                            </div>
+
+                            <div class="form-group mb-3">
+                                <label>Telegram command</label>
+                                <div class="input-group">
+                                    <input value="/registerwebhook deposit @Model.WebhookUrl <SECRET_WILL_BE_GENERATED>"
+                                           class="form-control" id="TelegramRegisterCommand" readonly/>
+                                    <button type="button" class="btn btn-outline-secondary"
+                                            data-clipboard-target="#TelegramRegisterCommand">
+                                        Copy
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    </div>
                 </div>
-            </div>
+            }
         </div>
     </div>
 </form>
