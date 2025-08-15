@@ -47,6 +47,13 @@
 
         @if (!string.IsNullOrEmpty(Model.ApiKey))
             {
+                <div class="my-4">
+                    <label class="d-flex align-items-center">
+                        <input asp-for="IsEnabled" type="checkbox" class="btcpay-toggle me-2" />
+                        <span>Enable Pix</span>
+                    </label>
+                </div>
+                
                 <div class="card my-4">
                     <div class="card-header d-flex align-items-center justify-content-between">
                         <span>Webhook</span>

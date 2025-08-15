@@ -28,13 +28,11 @@ public class PixController(
     private StoreData StoreData => HttpContext.GetStoreData();
     
     [HttpGet]
-    public async Task<IActionResult> PixSettings(string storeId)
+    public Task<IActionResult> PixSettings(string storeId)
     {
         var pmid = DePixPlugin.PixPmid;
         var cfg = StoreData.GetPaymentMethodConfig<PixPaymentMethodConfig>(pmid, handlers);
-        var enabled = await depixService.DePixEnabled(StoreData.Id);
         var webhookUrl = Utils.BuildWebhookUrl(Request, StoreData.Id);
-        
 
         var maskedApiKey = "";
         if (!string.IsNullOrEmpty(cfg?.EncryptedApiKey))
@@ -56,7 +54,7 @@ public class PixController(
         
         var model = new PixStoreViewModel
         {
-            Enabled                = enabled,
+            IsEnabled              = cfg is { IsEnabled: true },
             ApiKey                 = maskedApiKey,
             WebhookUrl             = webhookUrl,
             WebhookSecretDisplay   = secretDisplay,
@@ -67,45 +65,46 @@ public class PixController(
                 : $"/registerwebhook deposit {webhookUrl} {oneShotSecret}"
         };
 
-        return View(model);
+        return Task.FromResult<IActionResult>(View(model));
     }
 
-   [HttpPost]
+    [HttpPost]
     public async Task<IActionResult> PixSettings(PixStoreViewModel viewModel, string storeId)
     {
-        var blob  = StoreData.GetStoreBlob();
         var pmid  = DePixPlugin.PixPmid;
+        var store = StoreData;
+        var blob  = store.GetStoreBlob();
 
-        var isEnabled = await depixService.DePixEnabled(StoreData.Id);
-        blob.SetExcluded(pmid, !isEnabled);
+        var cfg = store.GetPaymentMethodConfig<PixPaymentMethodConfig>(pmid, handlers)
+                  ?? new PixPaymentMethodConfig();
 
+        var newApiKey = !string.IsNullOrWhiteSpace(viewModel.ApiKey) && !viewModel.ApiKey.Contains('•');
+        if (newApiKey)
+            cfg.EncryptedApiKey = protector.Protect(viewModel.ApiKey!.Trim());
+
+        var hasApiKey  = !string.IsNullOrEmpty(cfg.EncryptedApiKey);
+        var willEnable = (newApiKey || viewModel.IsEnabled) && hasApiKey;
+        
         string? oneShotSecretToDisplay = null;
-
-        if (isEnabled)
+        var needsInitialSecret = string.IsNullOrEmpty(cfg.WebhookSecretHashHex);
+        if (needsInitialSecret || viewModel.RegenerateWebhookSecret)
         {
-            var cfg = StoreData.GetPaymentMethodConfig<PixPaymentMethodConfig>(pmid, handlers)
-                      ?? new PixPaymentMethodConfig();
-
-            if (!string.IsNullOrWhiteSpace(viewModel.ApiKey) && !viewModel.ApiKey.Contains('•'))
-                cfg.EncryptedApiKey = protector.Protect(viewModel.ApiKey.Trim());
-            
-            if (string.IsNullOrEmpty(cfg.WebhookSecretHashHex) || viewModel.RegenerateWebhookSecret)
-            {
-                var newSecret = Utils.GenerateHexSecret32();
-                cfg.WebhookSecretHashHex = Utils.ComputeSecretHash(newSecret);
-                oneShotSecretToDisplay = newSecret;
-            }
-
-            StoreData.SetPaymentMethodConfig(handlers[pmid], cfg);
+            var newSecret = Utils.GenerateHexSecret32();               // 32 bytes -> 64 hex chars
+            cfg.WebhookSecretHashHex = Utils.ComputeSecretHash(newSecret);
+            oneShotSecretToDisplay = newSecret;
         }
 
-        StoreData.SetStoreBlob(blob);
-        await storeRepository.UpdateStore(StoreData);
+        cfg.IsEnabled = willEnable;
+        store.SetPaymentMethodConfig(handlers[pmid], cfg);
+        blob.SetExcluded(pmid, !willEnable);
+        store.SetStoreBlob(blob);
+
+        await storeRepository.UpdateStore(store);
 
         if (!string.IsNullOrEmpty(oneShotSecretToDisplay))
             TempData["OneShotSecret"] = oneShotSecretToDisplay;
 
-        TempData[WellKnownTempData.SuccessMessage] = "Depix configuration applied";
+        TempData[WellKnownTempData.SuccessMessage] = "Pix configuration applied";
         return RedirectToAction(nameof(PixSettings), new { storeId });
     }
     
