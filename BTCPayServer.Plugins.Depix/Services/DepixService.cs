@@ -35,6 +35,7 @@ namespace BTCPayServer.Plugins.Depix.Services;
 
 public class DepixService(
     IServiceProvider serviceProvider,
+    IServiceScopeFactory scopeFactory,
     StoreRepository storeRepository,
     InvoiceRepository invoiceRepository,
     ILogger<PixPaymentMethodHandler> logger,
@@ -44,7 +45,7 @@ public class DepixService(
 {
     private static readonly PaymentMethodId DePixPmid = new("DEPIX-CHAIN");
 
-    public async Task<bool> DePixEnabled(string storeId)
+    public async Task<bool> IsDePixEnabled(string storeId)
     {
         try
         {
@@ -71,13 +72,24 @@ public class DepixService(
         }
     }
     
+    public async Task<bool> IsPixEnabled(string storeId)
+    {
+        var store = await storeRepository.FindStore(storeId);
+        if (store is null) return false;
+
+        using var scope = scopeFactory.CreateScope();
+        var handlers = scope.ServiceProvider.GetRequiredService<PaymentMethodHandlerDictionary>();
+
+        var cfg = store.GetPaymentMethodConfig<PixPaymentMethodConfig>(DePixPlugin.PixPmid, handlers);
+        return cfg is not null && cfg.IsEnabled;
+    }
+    
     public async Task<string> GenerateFreshDePixAddress(string storeId)
     {
         logger.LogInformation("[DePix] Starting address generation for storeId: {StoreId}", storeId);
 
         var walletProvider = serviceProvider.GetRequiredService<BTCPayWalletProvider>();
         var networkProvider = serviceProvider.GetRequiredService<BTCPayNetworkProvider>();
-        var storeRepository = serviceProvider.GetRequiredService<StoreRepository>();
 
         var store = await storeRepository.FindStore(storeId);
         if (store == null)

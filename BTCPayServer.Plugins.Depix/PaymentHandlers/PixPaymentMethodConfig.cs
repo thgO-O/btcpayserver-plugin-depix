@@ -5,4 +5,5 @@ public class PixPaymentMethodConfig
 {
     public string? EncryptedApiKey { get; set; }
     public string? WebhookSecretHashHex { get; set; }
+    public bool IsEnabled { get; set; }
 }
