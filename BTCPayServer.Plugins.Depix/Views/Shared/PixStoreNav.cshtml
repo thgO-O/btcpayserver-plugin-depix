@@ -11,7 +11,7 @@
 }
 @if (SignInManager.IsSignedIn(User) && !string.IsNullOrEmpty(storeId))
 {
-    var isEnabled = await DepixService.DePixEnabled(storeId);
+    var isEnabled = await DepixService.IsPixEnabled(storeId);
     
     <li class="nav-item">
         <a class="nav-link @(isEnabled ? "active" : "")"
