@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Razor">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
-    <AssemblyName>BTCPayServer.Plugins.DePix</AssemblyName>
+    <AssemblyName>BTCPayServer.Plugins.Depix</AssemblyName>
   </PropertyGroup>
 
   <!-- Plugin specific properties -->
