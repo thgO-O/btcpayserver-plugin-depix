@@ -72,10 +72,30 @@ public class DepixService(
         }
     }
     
+    public async Task<PixConfigStatus> GetPixConfigStatus(string storeId)
+    {
+        var store = await storeRepository.FindStore(storeId);
+        if (store is null)
+            return new PixConfigStatus(DePixActive: false, PixEnabled: false, ApiKeyConfigured: false);
+
+        using var scope = scopeFactory.CreateScope();
+        var handlers = scope.ServiceProvider.GetRequiredService<PaymentMethodHandlerDictionary>();
+
+        var dePixActive = await IsDePixEnabled(storeId);
+
+        var pixCfg           = store.GetPaymentMethodConfig<PixPaymentMethodConfig>(DePixPlugin.PixPmid, handlers);
+        var pixEnabled       = pixCfg?.IsEnabled == true;
+        var apiKeyConfigured = !string.IsNullOrEmpty(pixCfg?.EncryptedApiKey);
+
+        return new PixConfigStatus(dePixActive, pixEnabled, apiKeyConfigured);
+    }
+    
     public async Task<bool> IsPixEnabled(string storeId)
     {
         var store = await storeRepository.FindStore(storeId);
         if (store is null) return false;
+
+        if (!await IsDePixEnabled(storeId)) return false;
 
         using var scope = scopeFactory.CreateScope();
         var handlers = scope.ServiceProvider.GetRequiredService<PaymentMethodHandlerDictionary>();
