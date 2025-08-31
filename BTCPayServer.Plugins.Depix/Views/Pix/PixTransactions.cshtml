@@ -2,12 +2,19 @@
 @using BTCPayServer.TagHelpers
 @using BTCPayServer.Abstractions.TagHelpers
 @using BTCPayServer.Plugins.Depix
+@using BTCPayServer.Plugins.Depix.Data.Models
 @using Microsoft.AspNetCore.Mvc.TagHelpers
 @using Microsoft.AspNetCore.Routing
 @model BTCPayServer.Plugins.Depix.Data.Models.ViewModels.PixTransactionsViewModel
+@inject BTCPayServer.Plugins.Depix.Services.DepixService DepixService
 
 @{
     var storeId = Context.GetRouteValue("storeId")?.ToString();
+    var pixCfgStatus = string.IsNullOrEmpty(storeId)
+        ? new PixConfigStatus(DePixActive: false, PixEnabled: false, ApiKeyConfigured: false)
+        : await DepixService.GetPixConfigStatus(storeId);
+
+    var depixWalletUrl = $"/stores/{storeId}/onchain/DePix";
 
     ViewData.SetActivePage(DePixPlugin.PluginNavKey, "Pix – Transactions", "DepixTransactions");
 
@@ -50,6 +57,51 @@
 </div>
 
 <partial name="_StatusMessage" />
+
+@if (!pixCfgStatus.DePixActive)
+{
+    <div class="alert alert-warning d-flex align-items-center justify-content-between" role="alert">
+        <div>
+            <strong>DePix wallet not configured.</strong>
+            <span class="ms-2">Set up the DePix wallet for this store.</span>
+        </div>
+        <a class="btn btn-sm btn-primary"
+           href="@depixWalletUrl"
+           target="_blank" rel="noopener">
+            Configure DePix Wallet
+        </a>
+    </div>
+}
+else if (!pixCfgStatus.ApiKeyConfigured)
+{
+    <div class="alert alert-warning d-flex align-items-center justify-content-between" role="alert">
+        <div>
+            <strong>DePix API key missing.</strong>
+            <span class="ms-2">Add your DePix API key to enable Pix transactions.</span>
+        </div>
+        <a class="btn btn-sm btn-primary"
+           asp-controller="Pix"
+           asp-action="PixSettings"
+           asp-route-storeId="@storeId">
+            Add API Key
+        </a>
+    </div>
+}
+else if (!pixCfgStatus.PixEnabled)
+{
+    <div class="alert alert-warning d-flex align-items-center justify-content-between" role="alert">
+        <div>
+            <strong>Pix is disabled.</strong>
+            <span class="ms-2">Enable the Pix payment method to accept payments.</span>
+        </div>
+        <a class="btn btn-sm btn-primary"
+           asp-controller="Pix"
+           asp-action="PixSettings"
+           asp-route-storeId="@storeId">
+            Enable Pix
+        </a>
+    </div>
+}
 
 <div class="d-flex flex-wrap align-items-center justify-content-between gap-3" id="Dropdowns">
     <form method="get" class="row g-3 align-items-end flex-grow-1" id="Filter">
