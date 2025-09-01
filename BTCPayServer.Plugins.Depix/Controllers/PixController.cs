@@ -80,7 +80,17 @@ public class PixController(
 
         var newApiKey = !string.IsNullOrWhiteSpace(viewModel.ApiKey) && !viewModel.ApiKey.Contains('•');
         if (newApiKey)
-            cfg.EncryptedApiKey = protector.Protect(viewModel.ApiKey!.Trim());
+        {
+            var candidate = viewModel.ApiKey!.Trim();
+
+            var validationResult = await depixService.ValidateApiKeyAsync(candidate, HttpContext.RequestAborted);
+            if (!validationResult.IsValid)
+            {
+                TempData[WellKnownTempData.ErrorMessage] = validationResult.Message;
+                return RedirectToAction(nameof(PixSettings), new { storeId });
+            }
+            cfg.EncryptedApiKey = protector.Protect(candidate);
+        }
 
         var hasApiKey  = !string.IsNullOrEmpty(cfg.EncryptedApiKey);
         var willEnable = (newApiKey || viewModel.IsEnabled) && hasApiKey;
