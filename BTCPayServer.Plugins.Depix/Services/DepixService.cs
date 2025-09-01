@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -159,6 +160,52 @@ public class DepixService(
         client.BaseAddress = new Uri("https://depix.eulen.app/api/");
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         return client;
+    }
+    
+    public async Task<ApiKeyValidationResponse> ValidateApiKeyAsync(string apiKey, CancellationToken ct = default)
+    {
+        try
+        {
+            var client = CreateDepixClient(apiKey);
+            using var req  = new HttpRequestMessage(HttpMethod.Get, "ping");
+            using var resp = await client.SendAsync(req, ct);
+
+            if (resp.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                return new ApiKeyValidationResponse(false, "Invalid API key (401/403).");
+
+            // At the moment, despite docs, Depix API only return 200 or 500 so we can't know if it's a server error or apiKey error.
+            // So, if doesn't return 200 we handle as ApiKey error for now. 
+            if (!resp.IsSuccessStatusCode)
+            {
+                var code = (int)resp.StatusCode;
+                var msg  = $"Invalid API key ({code}).";
+                return new ApiKeyValidationResponse(false, msg);
+            }
+
+            await using var s = await resp.Content.ReadAsStreamAsync(ct);
+            using var doc = await JsonDocument.ParseAsync(s, cancellationToken: ct);
+
+            if (doc.RootElement.TryGetProperty("response", out var response) &&
+                response.TryGetProperty("msg", out var msgProp) &&
+                string.Equals(msgProp.GetString(), "Pong!", StringComparison.OrdinalIgnoreCase))
+            {
+                return new ApiKeyValidationResponse(true, "OK");
+            }
+
+            return new ApiKeyValidationResponse(false, "API responded but did not confirm token (no Pong!).");
+        }
+        catch (TaskCanceledException)
+        {
+            return new ApiKeyValidationResponse(false, "Timed out reaching DePix API. Try again.");
+        }
+        catch (HttpRequestException)
+        {
+            return new ApiKeyValidationResponse(false, "Network error contacting DePix API.");
+        }
+        catch
+        {
+            return new ApiKeyValidationResponse(false, "API key validation failed due to an unexpected error.");
+        }
     }
     
     public async Task<DepixDepositResponse> RequestDepositAsync(HttpClient client, int amountInCents, string depixAddress, CancellationToken ct)
