@@ -36,15 +36,21 @@ Accept **Pix** payments in your BTCPay Server store and receive funds in **DePix
 
 ## Pix setup (3 quick steps)
 
-1. **Create your DePix wallet**
-   Go to Wallets → DePix. You’ll be guided through creating a dedicated wallet. This step is required before you can access the Pix settings.
+1. **Create your DePix wallet (choose one)**
+   - **Option A — External (Aqua via SamRock Plugin, xpub import)**
+      1) In BTCPay: Plugins → Manage Plugins → install **SamRock**; open SamRock and **scan** the pairing QR with the **Aqua** app.
+      2) **Wallets** → **Liquid Bitcoin** → **Settings** → **Derivation Scheme** → **copy the LBTC xpub**.
+      3) **Wallets → DePix → Connect an existing wallet → Enter extended public key** → **paste the LBTC xpub** → Continue.  
+         *Result:* BTCPay derives Liquid/DePix receiving addresses from this xpub, so **deposits go directly to your Aqua wallet**. *(Only the **public** key is used; no private keys leave Aqua.)*
+
+   - **Option B — BTCPay Hot Wallet**
+      1) **Wallets → DePix → Create new wallet → Hot wallet**.  
+         To spend from your own Elements/Liquid node later, import the generated keys using **Liquid+** and `elements-cli` (see **Balance and spending DePix**).
 
 2. **Enter your API key**
    Go to **Wallets → DePix → Pix Settings** and paste your **DePix API key**. If you don’t have one yet, request it at [https://www.depix.info/#partners](https://www.depix.info/#partners). Click **Save**.
 
-
    ![Pix Settings](docs/img/pix-settings.png)
-
 
 3. **Register the webhook** (optional but recommended)
    After saving the API key, the **Webhook** section appears:
@@ -58,8 +64,7 @@ Accept **Pix** payments in your BTCPay Server store and receive funds in **DePix
 
    This enables **real‑time updates** for paid invoices.
 
-
-3. **Done**
+4. **Done**
    The **Pix** payment method is now **configured automatically** and available on invoices and POS.
 
 ---
