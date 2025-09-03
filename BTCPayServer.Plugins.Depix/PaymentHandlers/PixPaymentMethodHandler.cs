@@ -31,8 +31,6 @@ public class PixPaymentMethodHandler(
 
     public async Task ConfigurePrompt(PaymentMethodContext context)
     {
-        logger.LogInformation("[DePix] ConfigurePrompt invoice {InvoiceId}", context.InvoiceEntity.Id);
-
         var store = context.Store;
         if (ParsePaymentMethodConfig(store.GetPaymentMethodConfigs()[PaymentMethodId]) is not PixPaymentMethodConfig pixCfg)
             throw new PaymentMethodUnavailableException("DePix payment method not configured");
@@ -51,8 +49,6 @@ public class PixPaymentMethodHandler(
         var deposit = await depixService.RequestDepositAsync(client, amountInCents, address, CancellationToken.None);
 
         depixService.ApplyPromptDetails(context, deposit, address);
-
-        logger.LogInformation("[DePix] ConfigurePrompt finished for invoice {InvoiceId}", context.InvoiceEntity.Id);
     }
     
     public JsonSerializer Serializer { get; } = BlobSerializer.CreateSerializer().Serializer;

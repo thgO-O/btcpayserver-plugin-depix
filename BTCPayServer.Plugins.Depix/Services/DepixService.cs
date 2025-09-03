@@ -107,49 +107,34 @@ public class DepixService(
     
     public async Task<string> GenerateFreshDePixAddress(string storeId)
     {
-        logger.LogInformation("[DePix] Starting address generation for storeId: {StoreId}", storeId);
-
         var walletProvider = serviceProvider.GetRequiredService<BTCPayWalletProvider>();
         var networkProvider = serviceProvider.GetRequiredService<BTCPayNetworkProvider>();
 
         var store = await storeRepository.FindStore(storeId);
         if (store == null)
-        {
-            logger.LogError("[DePix] Store not found: {StoreId}", storeId);
             throw new PixPluginException("Store not found"); 
-        }
+        
 
         var depixNetwork = networkProvider.GetNetwork<ElementsBTCPayNetwork>("DePix");
         if (depixNetwork == null)
-        {
-            logger.LogError("[DePix] DePix network not configured");
             throw new PixPluginException("DePix asset network not configured");
-        }
+        
 
         var wallet = walletProvider.GetWallet(depixNetwork);
         if (wallet == null)
-        {
-            logger.LogError("[DePix] Wallet not configured for DePix network");
             throw new PixPaymentException("Depix wallet not configured");
-        }
+        
 
         const string generatedBy = "invoice";
         var handlers = serviceProvider.GetRequiredService<PaymentMethodHandlerDictionary>();
 
         var derivationSettings = store.GetDerivationSchemeSettings(handlers, "DePix", onlyEnabled: true);
         if (derivationSettings == null)
-        {
-            logger.LogError("[DePix] Derivation scheme not configured for storeId: {StoreId}", storeId);
             throw new PixPluginException("DePix derivation scheme not configured for this store.");
-        }
-
-        logger.LogInformation("[DePix] Reserving address from derivation: {Derivation}", derivationSettings.AccountDerivation.ToString());
-
+        
         var addressData = await wallet.ReserveAddressAsync(storeId, derivationSettings.AccountDerivation, generatedBy);
         var address = addressData.Address.ToString();
-
-        logger.LogInformation("[DePix] Generated fresh address: {Address}", address);
-
+        
         return address;
     }
     
@@ -211,15 +196,12 @@ public class DepixService(
     public async Task<DepixDepositResponse> RequestDepositAsync(HttpClient client, int amountInCents, string depixAddress, CancellationToken ct)
     {
         var payload = new { amountInCents, depixAddress };
-        logger.LogInformation("[DePix] POST /deposit {@Payload}", payload);
 
         var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
         var resp = await client.PostAsync("deposit", content, ct);
         if (!resp.IsSuccessStatusCode)
-        {
-            logger.LogError("[DePix] Failed to generate QR code. Status: {StatusCode} {Reason}", (int)resp.StatusCode, resp.ReasonPhrase);
             throw new PaymentMethodUnavailableException("Failed to generate Pix QR Code");
-        }
+        
 
         var body = await resp.Content.ReadAsStringAsync(ct);
         using var doc = JsonDocument.Parse(body);
@@ -358,8 +340,6 @@ public class DepixService(
 
             if (DepixStatusExtensions.TryParse(body.Status, out var depixStatus))
                 await ApplyStatusAndNotifyAsync(invoiceId, depixStatus);
-
-            logger.LogInformation("Depix webhook: invoice {InvoiceId} updated for qrId {QrId}", invoiceId, body.QrId);
         }
         catch (Exception ex)
         {
@@ -380,8 +360,6 @@ public class DepixService(
 
         events.Publish(new InvoiceNeedUpdateEvent(invoiceId));
         events.Publish(new InvoiceDataChangedEvent(entity));
-
-        logger.LogInformation("Invoice {InvoiceId} -> {Status} (notify UI)", invoiceId, newState);
     }
     
     public PixPaymentMethodConfig? GetPixConfig(StoreData store, PaymentMethodHandlerDictionary handlers)
@@ -485,8 +463,6 @@ public class DepixService(
             Symbol       = null,
             Crypto       = true
         });
-
-        logger.LogInformation("[DePix] Network registered (chain: {Chain})", chainName);
     }
 
     private static string GetLiquidBlockExplorer(ChainName chainName)
