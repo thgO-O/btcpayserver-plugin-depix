@@ -17,7 +17,7 @@ using StoreData = BTCPayServer.Data.StoreData;
 namespace BTCPayServer.Plugins.Depix.Controllers;
 
 [Route("stores/{storeId}/depix")]
-[Authorize(Policy = Policies.CanModifyServerSettings, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
+[Authorize(Policy = Policies.CanModifyStoreSettings, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
 public class PixController(
     StoreRepository storeRepository,
     PaymentMethodHandlerDictionary handlers,
