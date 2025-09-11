@@ -4,8 +4,6 @@ early_access: false
 enable_free_tier: true
 auto_resolve_threads: true
 reviews:
-  summaries:
-    include_walkthrough: false
   profile: chill
   request_changes_workflow: false
   high_level_summary: false
@@ -31,7 +29,6 @@ reviews:
   path_filters: []
   path_instructions: []
   abort_on_close: true
-  pr_description: false
   auto_review:
     enabled: true
     auto_incremental_review: true
@@ -112,7 +109,6 @@ reviews:
       enabled: true
 chat:
   auto_reply: true
-  create_issues: true
   integrations:
     jira:
       usage: auto
