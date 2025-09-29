@@ -25,7 +25,12 @@ public class PixPaymentMethodHandler(
     {
         context.Prompt.Currency = "BRL";
         context.Prompt.Divisibility = 2;
-        context.Prompt.PaymentMethodFee = 1.00m;
+        
+        var cfgToken = context.Store.GetPaymentMethodConfigs().TryGetValue(PaymentMethodId, out var token) ? token : null;
+        var pixCfg = cfgToken is null ? null : ParsePaymentMethodConfig(cfgToken) as PixPaymentMethodConfig;
+        var merchantPays = pixCfg?.PassFeeToCustomer != true;
+        context.Prompt.PaymentMethodFee = merchantPays ? 0.00m : 1.00m;
+        
         return Task.CompletedTask;
     }
 
@@ -39,14 +44,14 @@ public class PixPaymentMethodHandler(
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new PaymentMethodUnavailableException("DePix API key not configured");
 
-        var amountInBrl = context.Prompt.Calculate().Due; // decimal BRL
+        var amountInBrl = context.Prompt.Calculate().Due;
         var amountInCents = (int)Math.Round(amountInBrl * 100m, MidpointRounding.AwayFromZero);
 
         using var client = depixService.CreateDepixClient(apiKey);
 
         var address = await depixService.GenerateFreshDePixAddress(store.Id);
 
-        var deposit = await depixService.RequestDepositAsync(client, amountInCents, address, CancellationToken.None);
+        var deposit = await depixService.RequestDepositAsync(client, amountInCents, address, pixCfg.UseWhitelist, CancellationToken.None);
 
         depixService.ApplyPromptDetails(context, deposit, address);
     }
