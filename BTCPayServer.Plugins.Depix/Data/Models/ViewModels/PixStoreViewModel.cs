@@ -10,4 +10,6 @@ public class PixStoreViewModel
     public bool RegenerateWebhookSecret { get; set; }
     public string? OneShotSecretToDisplay { get; set; }
     public string? TelegramRegisterCommand { get; set; }
+    public bool UseWhitelist { get; set; }
+    public bool PassFeeToCustomer { get; set; }
 }
