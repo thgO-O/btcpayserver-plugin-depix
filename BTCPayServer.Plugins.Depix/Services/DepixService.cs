@@ -193,9 +193,16 @@ public class DepixService(
         }
     }
     
-    public async Task<DepixDepositResponse> RequestDepositAsync(HttpClient client, int amountInCents, string depixAddress, CancellationToken ct)
+    public async Task<DepixDepositResponse> RequestDepositAsync(HttpClient client, int amountInCents, string depixAddress, bool whitelist, CancellationToken ct)
     {
-        var payload = new { amountInCents, depixAddress };
+        var payload = new Dictionary<string, object>
+        {
+            ["amountInCents"] = amountInCents,
+            ["depixAddress"]  = depixAddress
+        };
+        
+        if (whitelist)
+            payload["whitelist"] = true;
 
         var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
         var resp = await client.PostAsync("deposit", content, ct);
