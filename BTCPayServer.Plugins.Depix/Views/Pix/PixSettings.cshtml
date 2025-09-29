@@ -54,6 +54,26 @@
                     </label>
                 </div>
                 
+                <div class="my-3">
+                    <label class="d-flex align-items-center">
+                        <input asp-for="PassFeeToCustomer" type="checkbox" class="btcpay-toggle me-2" />
+                        <span>Pass DePix fee to customer</span>
+                    </label>
+                    <small class="text-muted d-block">
+                        When enabled, R$ 1.00 is added to the QR amount (customer pays the DePix fee).
+                    </small>
+                </div>
+                
+                <div class="my-3">
+                    <label class="d-flex align-items-center">
+                        <input asp-for="UseWhitelist" type="checkbox" class="btcpay-toggle me-2" />
+                        <span>Whitelist mode</span>
+                    </label>
+                    <small class="text-muted d-block">
+                        When enabled, the deposit request will include <code>whitelist</code> = <code>true</code>. Only enable this if you know what you are doing.
+                    </small>
+                </div>
+                
                 <div class="card my-4">
                     <div class="card-header d-flex align-items-center justify-content-between">
                         <span>Webhook</span>
