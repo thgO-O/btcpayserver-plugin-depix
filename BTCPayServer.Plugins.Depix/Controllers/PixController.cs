@@ -56,6 +56,8 @@ public class PixController(
         {
             IsEnabled              = cfg is { IsEnabled: true },
             ApiKey                 = maskedApiKey,
+            UseWhitelist = cfg is { UseWhitelist: true },
+            PassFeeToCustomer       = cfg is { PassFeeToCustomer: true},
             WebhookUrl             = webhookUrl,
             WebhookSecretDisplay   = secretDisplay,
             OneShotSecretToDisplay = oneShotSecret,
@@ -105,6 +107,8 @@ public class PixController(
         }
 
         cfg.IsEnabled = willEnable;
+        cfg.UseWhitelist = viewModel.UseWhitelist;
+        cfg.PassFeeToCustomer = viewModel.PassFeeToCustomer;
         store.SetPaymentMethodConfig(handlers[pmid], cfg);
         blob.SetExcluded(pmid, !willEnable);
         store.SetStoreBlob(blob);
