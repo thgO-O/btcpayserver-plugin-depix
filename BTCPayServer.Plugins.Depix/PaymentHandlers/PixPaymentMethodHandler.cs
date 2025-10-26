@@ -6,7 +6,6 @@ using BTCPayServer.Payments;
 using BTCPayServer.Payments.Bitcoin;
 using BTCPayServer.Plugins.Altcoins;
 using BTCPayServer.Plugins.Depix.Services;
-using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
 using JsonSerializer = Newtonsoft.Json.JsonSerializer;
 
@@ -14,7 +13,6 @@ namespace BTCPayServer.Plugins.Depix.PaymentHandlers;
 public class PixPaymentMethodHandler(
     BTCPayNetworkProvider networkProvider,
     DepixService depixService,
-    ILogger<PixPaymentMethodHandler> logger,
     ISecretProtector secretProtector)
     : IPaymentMethodHandler, IHasNetwork
 {
