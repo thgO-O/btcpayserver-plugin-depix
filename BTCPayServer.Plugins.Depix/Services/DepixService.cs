@@ -45,6 +45,7 @@ public class DepixService(
 )
 {
     private static readonly PaymentMethodId DePixPmid = new("DEPIX-CHAIN");
+    public string DePixCryptoCode = "DePix";
 
     public async Task<bool> IsDePixEnabled(string storeId)
     {
@@ -115,7 +116,7 @@ public class DepixService(
             throw new PixPluginException("Store not found"); 
         
 
-        var depixNetwork = networkProvider.GetNetwork<ElementsBTCPayNetwork>("DePix");
+        var depixNetwork = networkProvider.GetNetwork<ElementsBTCPayNetwork>(DePixCryptoCode);
         if (depixNetwork == null)
             throw new PixPluginException("DePix asset network not configured");
         
@@ -128,7 +129,7 @@ public class DepixService(
         const string generatedBy = "invoice";
         var handlers = serviceProvider.GetRequiredService<PaymentMethodHandlerDictionary>();
 
-        var derivationSettings = store.GetDerivationSchemeSettings(handlers, "DePix", onlyEnabled: true);
+        var derivationSettings = store.GetDerivationSchemeSettings(handlers, DePixCryptoCode, onlyEnabled: true);
         if (derivationSettings == null)
             throw new PixPluginException("DePix derivation scheme not configured for this store.");
         
@@ -422,7 +423,7 @@ public class DepixService(
 
         var network = new ElementsBTCPayNetwork
         {
-            CryptoCode        = "DePix",
+            CryptoCode        = DePixCryptoCode,
             NetworkCryptoCode = "LBTC",
             ShowSyncSummary   = false,
             DefaultRateRules =
@@ -445,7 +446,7 @@ public class DepixService(
                 "BTC_DEPIX = BTC_BRL"
             ],
             AssetId           = new uint256("02f22f8d9c76ab41661a2729e4752e2c5d1a263012141b86ea98af5472df5189"),
-            DisplayName       = "DePix",
+            DisplayName       = DePixCryptoCode,
             NBXplorerNetwork  = lbtc,
             CryptoImagePath   = "~/Resources/img/depix.svg",
             DefaultSettings   = BTCPayDefaultSettings.GetDefaultSettings(chainName),
@@ -459,13 +460,13 @@ public class DepixService(
 
         services.AddBTCPayNetwork(network)
                 .AddTransactionLinkProvider(
-                    PaymentTypes.CHAIN.GetPaymentMethodId("DePix"),
+                    PaymentTypes.CHAIN.GetPaymentMethodId(DePixCryptoCode),
                     new DefaultTransactionLinkProvider(GetLiquidBlockExplorer(chainName)));
 
         services.AddCurrencyData(new CurrencyData
         {
-            Code         = "DePix",
-            Name         = "DePix",
+            Code         = DePixCryptoCode,
+            Name         = DePixCryptoCode,
             Divisibility = 2,
             Symbol       = null,
             Crypto       = true
