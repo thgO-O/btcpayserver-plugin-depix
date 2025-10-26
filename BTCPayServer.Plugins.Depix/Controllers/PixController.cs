@@ -16,7 +16,7 @@ using StoreData = BTCPayServer.Data.StoreData;
 
 namespace BTCPayServer.Plugins.Depix.Controllers;
 
-[Route("stores/{storeId}/depix")]
+[Route("[controller]")]
 [Authorize(Policy = Policies.CanModifyStoreSettings, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
 public class PixController(
     StoreRepository storeRepository,
@@ -27,8 +27,8 @@ public class PixController(
 {
     private StoreData StoreData => HttpContext.GetStoreData();
     
-    [HttpGet]
-    public Task<IActionResult> PixSettings(string storeId)
+    [HttpGet("settings")]
+    public Task<IActionResult> PixSettings([FromQuery] string? walletId)
     {
         var pmid = DePixPlugin.PixPmid;
         var cfg = StoreData.GetPaymentMethodConfig<PixPaymentMethodConfig>(pmid, handlers);
@@ -70,8 +70,8 @@ public class PixController(
         return Task.FromResult<IActionResult>(View(model));
     }
 
-    [HttpPost]
-    public async Task<IActionResult> PixSettings(PixStoreViewModel viewModel, string storeId)
+    [HttpPost("settings")]
+    public async Task<IActionResult> PixSettings(PixStoreViewModel viewModel, string? walletId)
     {
         var pmid  = DePixPlugin.PixPmid;
         var store = StoreData;
@@ -89,7 +89,7 @@ public class PixController(
             if (!validationResult.IsValid)
             {
                 TempData[WellKnownTempData.ErrorMessage] = validationResult.Message;
-                return RedirectToAction(nameof(PixSettings), new { storeId });
+                return RedirectToAction(nameof(PixSettings), new { walletId });
             }
             cfg.EncryptedApiKey = protector.Protect(candidate);
         }
@@ -119,15 +119,20 @@ public class PixController(
             TempData["OneShotSecret"] = oneShotSecretToDisplay;
 
         TempData[WellKnownTempData.SuccessMessage] = "Pix configuration applied";
-        return RedirectToAction(nameof(PixSettings), new { storeId });
+        return RedirectToAction(nameof(PixSettings), new { walletId });
     }
     
-    [HttpGet("~/plugins/depix/{storeId}/transactions")]
+    [HttpGet("transactions")]
     public async Task<IActionResult> PixTransactions(PixTxQueryRequest query, string storeId, CancellationToken ct)
     {
+        var depixWalletId = new WalletId(storeId, depixService.DePixCryptoCode);
+        
         var model = new PixTransactionsViewModel
         {
-            Transactions = await depixService.LoadPixTransactionsAsync(query, ct)
+            StoreId = storeId,
+            WalletId = depixWalletId.ToString(),
+            Transactions = await depixService.LoadPixTransactionsAsync(query, ct),
+            ConfigStatus = await depixService.GetPixConfigStatus(storeId)
         };
 
         ViewData["StatusFilter"] = query.Status;

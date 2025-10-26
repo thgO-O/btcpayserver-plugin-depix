@@ -38,9 +38,7 @@
 {
     <li class="nav-item">
         <a class="nav-link nav-item-sub @ViewData.ActivePageClass("PixSettings", typeof(BTCPayServer.Views.Wallets.WalletsNavPages).ToString())"
-           asp-controller="Pix" asp-action="PixSettings"
-           asp-route-storeId="@walletId.StoreId"
-           asp-route-walletId="@walletId.ToString()">
+           asp-controller="Pix" asp-action="PixSettings" asp-route-walletId="@walletId.ToString()">
             <span class="icon"><i class="fa fa-key"></i></span>
             <span>Pix Settings</span>
         </a>
