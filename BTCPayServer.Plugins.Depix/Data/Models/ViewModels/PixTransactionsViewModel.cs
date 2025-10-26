@@ -7,6 +7,10 @@ namespace BTCPayServer.Plugins.Depix.Data.Models.ViewModels
     public class PixTransactionsViewModel
     {
         public List<PixTxResponse> Transactions { get; set; } = [];
+        public string StoreId { get; set; }
+        public string WalletId { get; set; }
+        public PixConfigStatus ConfigStatus { get; set; } = new(false, false, false);
+        public PixTxQueryRequest QueryRequest { get; set; }
     }
 
     public class PixTxResponse

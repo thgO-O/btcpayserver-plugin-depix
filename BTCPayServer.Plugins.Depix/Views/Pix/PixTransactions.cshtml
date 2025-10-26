@@ -2,38 +2,30 @@
 @using BTCPayServer.TagHelpers
 @using BTCPayServer.Abstractions.TagHelpers
 @using BTCPayServer.Plugins.Depix
-@using BTCPayServer.Plugins.Depix.Data.Models
 @using Microsoft.AspNetCore.Mvc.TagHelpers
-@using Microsoft.AspNetCore.Routing
 @model BTCPayServer.Plugins.Depix.Data.Models.ViewModels.PixTransactionsViewModel
-@inject BTCPayServer.Plugins.Depix.Services.DepixService DepixService
 
 @{
-    var storeId = Context.GetRouteValue("storeId")?.ToString();
-    var pixCfgStatus = string.IsNullOrEmpty(storeId)
-        ? new PixConfigStatus(DePixActive: false, PixEnabled: false, ApiKeyConfigured: false)
-        : await DepixService.GetPixConfigStatus(storeId);
+  var depixWalletUrl = $"/stores/{Model.StoreId}/onchain/DePix";
 
-    var depixWalletUrl = $"/stores/{storeId}/onchain/DePix";
+  ViewData.SetActivePage(DePixPlugin.PluginNavKey, "Pix – Transactions", "DepixTransactions");
 
-    ViewData.SetActivePage(DePixPlugin.PluginNavKey, "Pix – Transactions", "DepixTransactions");
+  var statusFilter = ViewData["StatusFilter"] as string ?? "";
+  var query        = ViewData["Query"] as string ?? "";
+  var from         = ViewData["From"] as string ?? "";
+  var to           = ViewData["To"] as string ?? "";
 
-    var statusFilter = ViewData["StatusFilter"] as string ?? "";
-    var query        = ViewData["Query"] as string ?? "";
-    var from         = ViewData["From"] as string ?? "";
-    var to           = ViewData["To"] as string ?? "";
+  string Badge(string s) => (s ?? "").ToLowerInvariant() switch
+  {
+      "depix_sent" => "bg-success",
+      "under_review" => "bg-warning text-dark",
+      "pending" => "bg-secondary",
+      "expired" => "bg-dark",
+      "canceled" or "error" or "refunded" => "bg-danger",
+      _ => "bg-secondary"
+  };
 
-    string Badge(string s) => (s ?? "").ToLowerInvariant() switch
-        {
-            "depix_sent" => "bg-success",
-            "under_review" => "bg-warning text-dark",
-            "pending" => "bg-secondary",
-            "expired" => "bg-dark",
-            "canceled" or "error" or "refunded" => "bg-danger",
-            _ => "bg-secondary"
-        };
-
-    string Brl(int? cents) => cents is { } v ? (v / 100m).ToString("N2") : "-";
+  string Brl(int? cents) => cents is { } v ? (v / 100m).ToString("N2") : "-";
 }
 
 @{ 
@@ -58,7 +50,7 @@
 
 <partial name="_StatusMessage" />
 
-@if (!pixCfgStatus.DePixActive)
+@if (!Model.ConfigStatus.DePixActive)
 {
     <div class="alert alert-warning d-flex align-items-center justify-content-between" role="alert">
         <div>
@@ -72,7 +64,7 @@
         </a>
     </div>
 }
-else if (!pixCfgStatus.ApiKeyConfigured)
+else if (!Model.ConfigStatus.ApiKeyConfigured)
 {
     <div class="alert alert-warning d-flex align-items-center justify-content-between" role="alert">
         <div>
@@ -82,23 +74,25 @@ else if (!pixCfgStatus.ApiKeyConfigured)
         <a class="btn btn-sm btn-primary"
            asp-controller="Pix"
            asp-action="PixSettings"
-           asp-route-storeId="@storeId">
+           asp-route-walletId="@Model.WalletId"
+        >
             Add API Key
         </a>
     </div>
 }
-else if (!pixCfgStatus.PixEnabled)
+else if (!Model.ConfigStatus.PixEnabled)
 {
     <div class="alert alert-warning d-flex align-items-center justify-content-between" role="alert">
         <div>
             <strong>Pix is disabled.</strong>
             <span class="ms-2">Enable the Pix payment method to accept payments.</span>
         </div>
-        <a class="btn btn-sm btn-primary"
+        <a class="btn btn-sm btn-primary @ViewData.ActivePageClass("PixSettings", typeof(BTCPayServer.Views.Wallets.WalletsNavPages).ToString())"
            asp-controller="Pix"
            asp-action="PixSettings"
-           asp-route-storeId="@storeId">
-            Enable Pix
+           asp-route-walletId="@Model.WalletId"
+        >
+        Enable Pix
         </a>
     </div>
 }

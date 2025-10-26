@@ -11,18 +11,15 @@
     if (!string.IsNullOrEmpty(queryWalletId) && WalletId.TryParse(queryWalletId, out var parsedWalletId))
         walletId = parsedWalletId;
 
-    if (walletId is not null)
-    {
-        ViewData.SetActivePage(
-            activePage: "PixSettings",                                             
-            category: typeof(BTCPayServer.Views.Wallets.WalletsNavPages).ToString(),
-            title: "Pix Settings",                                                  
-            activeId: walletId.ToString()                                                
-        );
-    }
+    ViewData.SetActivePage(
+        activePage: "PixSettings",                                             
+        category: typeof(BTCPayServer.Views.Wallets.WalletsNavPages).ToString(),
+        title: "Pix Settings",                                                  
+        activeId: walletId?.ToString() ?? "PixSettings"                                            
+    );
 }
 
-<form method="post">
+<form method="post" asp-action="PixSettings" asp-route-walletId="@walletId">
     <div class="sticky-header d-flex align-items-center justify-content-between">
         <h2 class="mb-0">@ViewData["Title"]</h2>
         <input type="submit" class="btn btn-primary" value="Save" />
