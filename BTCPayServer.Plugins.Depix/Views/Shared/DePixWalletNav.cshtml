@@ -1,5 +1,6 @@
 @using BTCPayServer
 @using BTCPayServer.Abstractions.Extensions
+@using BTCPayServer.Plugins.Depix
 @using Microsoft.AspNetCore.Mvc.TagHelpers
 
 @{
@@ -34,11 +35,11 @@
     }
 }
 
-@if (walletId != null && walletId.CryptoCode.Equals("DePix", StringComparison.OrdinalIgnoreCase))
+@if (walletId != null && walletId.CryptoCode.Equals(DePixPlugin.DePixCryptoCode, StringComparison.OrdinalIgnoreCase))
 {
     <li class="nav-item">
         <a class="nav-link nav-item-sub @ViewData.ActivePageClass("PixSettings", typeof(BTCPayServer.Views.Wallets.WalletsNavPages).ToString())"
-           asp-controller="Pix" asp-action="PixSettings" asp-route-walletId="@walletId.ToString()">
+           asp-controller="Pix" asp-action="PixSettings" asp-route-walletId="@walletId.ToString()" asp-route-storeId="@walletId.StoreId">
             <span class="icon"><i class="fa fa-key"></i></span>
             <span>Pix Settings</span>
         </a>

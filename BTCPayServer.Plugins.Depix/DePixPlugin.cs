@@ -17,6 +17,8 @@ public class DePixPlugin : BaseBTCPayServerPlugin
 
     internal static readonly PaymentMethodId PixPmid = new("PIX");
     private const string PixDisplayName = "Pix";
+    public static readonly PaymentMethodId DePixPmid = new("DEPIX-CHAIN");
+    public const string DePixCryptoCode = "DePix";
 
     public override void Execute(IServiceCollection services)
     {

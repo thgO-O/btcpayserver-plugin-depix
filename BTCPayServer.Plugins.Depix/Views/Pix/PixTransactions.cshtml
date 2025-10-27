@@ -6,7 +6,7 @@
 @model BTCPayServer.Plugins.Depix.Data.Models.ViewModels.PixTransactionsViewModel
 
 @{
-  var depixWalletUrl = $"/stores/{Model.StoreId}/onchain/DePix";
+  var depixWalletUrl = $"/stores/{Model.StoreId}/onchain/{DePixPlugin.DePixCryptoCode}";
 
   ViewData.SetActivePage(DePixPlugin.PluginNavKey, "Pix – Transactions", "DepixTransactions");
 
@@ -24,8 +24,6 @@
       "canceled" or "error" or "refunded" => "bg-danger",
       _ => "bg-secondary"
   };
-
-  string Brl(int? cents) => cents is { } v ? (v / 100m).ToString("N2") : "-";
 }
 
 @{ 
@@ -75,6 +73,7 @@ else if (!Model.ConfigStatus.ApiKeyConfigured)
            asp-controller="Pix"
            asp-action="PixSettings"
            asp-route-walletId="@Model.WalletId"
+           asp-route-storeId="@Model.StoreId"
         >
             Add API Key
         </a>
@@ -91,6 +90,7 @@ else if (!Model.ConfigStatus.PixEnabled)
            asp-controller="Pix"
            asp-action="PixSettings"
            asp-route-walletId="@Model.WalletId"
+           asp-route-storeId="@Model.StoreId"
         >
         Enable Pix
         </a>
@@ -173,7 +173,7 @@ else if (!Model.ConfigStatus.PixEnabled)
                     </span>
                 </td>
 
-                <td class="text-end">R$ @(Brl(d.ValueInCents))</td>
+                <td class="text-end">@d.AmountBrl</td>
 
                 <td><span class="badge @Badge(raw)">@raw</span></td>
 

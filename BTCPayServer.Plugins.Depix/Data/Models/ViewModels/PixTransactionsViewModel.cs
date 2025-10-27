@@ -20,6 +20,7 @@ namespace BTCPayServer.Plugins.Depix.Data.Models.ViewModels
         public string QrId { get; set; } = "";
         public string DepixAddress { get; set; }   
         public int? ValueInCents { get; set; }
+        public string AmountBrl { get; set; }
         public string DepixStatusRaw { get; set; } = "pending";
         public DepixStatus? DepixStatus { get; set; } 
     }
