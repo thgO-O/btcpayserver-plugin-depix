@@ -16,7 +16,7 @@ using StoreData = BTCPayServer.Data.StoreData;
 
 namespace BTCPayServer.Plugins.Depix.Controllers;
 
-[Route("[controller]")]
+[Route("stores/{storeId}/pix")]
 [Authorize(Policy = Policies.CanModifyStoreSettings, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
 public class PixController(
     StoreRepository storeRepository,
@@ -71,7 +71,7 @@ public class PixController(
     }
 
     [HttpPost("settings")]
-    public async Task<IActionResult> PixSettings(PixStoreViewModel viewModel, string? walletId)
+    public async Task<IActionResult> PixSettings(PixStoreViewModel viewModel, [FromQuery] string? walletId)
     {
         var pmid  = DePixPlugin.PixPmid;
         var store = StoreData;
@@ -119,20 +119,21 @@ public class PixController(
             TempData["OneShotSecret"] = oneShotSecretToDisplay;
 
         TempData[WellKnownTempData.SuccessMessage] = "Pix configuration applied";
-        return RedirectToAction(nameof(PixSettings), new { walletId });
+        return RedirectToAction(nameof(PixSettings), new { storeId = StoreData.Id, walletId });
     }
     
     [HttpGet("transactions")]
-    public async Task<IActionResult> PixTransactions(PixTxQueryRequest query, string storeId, CancellationToken ct)
+    public async Task<IActionResult> PixTransactions([FromRoute] string storeId, [FromQuery] PixTxQueryRequest query, CancellationToken ct)
     {
-        var depixWalletId = new WalletId(storeId, depixService.DePixCryptoCode);
+        query.StoreId = storeId;
+        var depixWalletId = new WalletId(query.StoreId, DePixPlugin.DePixCryptoCode);
         
         var model = new PixTransactionsViewModel
         {
-            StoreId = storeId,
+            StoreId = query.StoreId,
             WalletId = depixWalletId.ToString(),
             Transactions = await depixService.LoadPixTransactionsAsync(query, ct),
-            ConfigStatus = await depixService.GetPixConfigStatus(storeId)
+            ConfigStatus = await depixService.GetPixConfigStatus(query.StoreId)
         };
 
         ViewData["StatusFilter"] = query.Status;
