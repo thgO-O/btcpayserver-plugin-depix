@@ -12,4 +12,6 @@ public class PixStoreViewModel
     public string? TelegramRegisterCommand { get; set; }
     public bool UseWhitelist { get; set; }
     public bool PassFeeToCustomer { get; set; }
+    public string? DepixSplitAddress { get; set; }
+    public string? SplitFee { get; set; }
 }

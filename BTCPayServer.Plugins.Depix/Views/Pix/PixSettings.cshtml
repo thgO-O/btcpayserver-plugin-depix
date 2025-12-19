@@ -70,6 +70,24 @@
                         When enabled, the deposit request will include <code>whitelist</code> = <code>true</code>. Only enable this if you know what you are doing.
                     </small>
                 </div>
+
+                <div class="form-group my-4">
+                    <label asp-for="DepixSplitAddress">DePix Split Address (Optional)</label>
+                    <input asp-for="DepixSplitAddress" type="text" class="form-control" />
+                    <span asp-validation-for="DepixSplitAddress" class="text-danger"></span>
+                    <small class="form-text text-muted">
+                        Optional DePix Split Address.
+                    </small>
+                </div>
+
+                <div class="form-group my-4">
+                    <label asp-for="SplitFee">Split Fee (Optional)</label>
+                    <input asp-for="SplitFee" type="text" class="form-control" />
+                    <span asp-validation-for="SplitFee" class="text-danger"></span>
+                    <small class="form-text text-muted">
+                        Optional Split Fee (percentage, e.g. 2.99%).
+                    </small>
+                </div>
                 
                 <div class="card my-4">
                     <div class="card-header d-flex align-items-center justify-content-between">

@@ -49,7 +49,14 @@ public class PixPaymentMethodHandler(
 
         var address = await depixService.GenerateFreshDePixAddress(store.Id);
 
-        var deposit = await depixService.RequestDepositAsync(client, amountInCents, address, pixCfg.UseWhitelist, CancellationToken.None);
+        var deposit = await depixService.RequestDepositAsync(
+            client, 
+            amountInCents, 
+            address, 
+            pixCfg.UseWhitelist, 
+            pixCfg.DepixSplitAddress,
+            pixCfg.SplitFee,
+            CancellationToken.None);
 
         depixService.ApplyPromptDetails(context, deposit, address);
     }
