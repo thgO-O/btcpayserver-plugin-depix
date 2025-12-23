@@ -16,10 +16,12 @@ public static class Utils
         return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 
-    public static string BuildWebhookUrl(HttpRequest req, string storeId)
+    public static string BuildWebhookUrl(HttpRequest req, string? storeId = null)
     {
         var baseUrl = $"{req.Scheme}://{req.Host}";
-        return $"{baseUrl}/depix/webhooks/deposit/{storeId}";
+        return storeId is null
+            ? $"{baseUrl}/depix/webhooks/deposit"
+            : $"{baseUrl}/depix/webhooks/deposit/{storeId}";
     }
 
     public static string ToBasic(string user, string pass)
