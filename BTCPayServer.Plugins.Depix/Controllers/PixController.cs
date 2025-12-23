@@ -28,11 +28,17 @@ public class PixController(
     private StoreData StoreData => HttpContext.GetStoreData();
     
     [HttpGet("settings")]
-    public Task<IActionResult> PixSettings([FromQuery] string? walletId)
+    public async Task<IActionResult> PixSettings([FromQuery] string? walletId)
     {
         var pmid = DePixPlugin.PixPmid;
         var cfg = StoreData.GetPaymentMethodConfig<PixPaymentMethodConfig>(pmid, handlers);
         var webhookUrl = Utils.BuildWebhookUrl(Request, StoreData.Id);
+
+        var serverCfg = await depixService.GetServerConfigAsync();
+        var isServerCfgValid = DepixService.IsConfigValid(serverCfg.EncryptedApiKey, serverCfg.WebhookSecretHashHex);
+        var isStoreCfgValid = DepixService.IsConfigValid(cfg?.EncryptedApiKey, cfg?.WebhookSecretHashHex);
+        var effectiveCfg = await depixService.GetEffectiveConfigAsync(cfg);
+        var effectiveUsesServer = effectiveCfg.Source == DepixService.DepixConfigSource.Server;
 
         var maskedApiKey = "";
         if (!string.IsNullOrEmpty(cfg?.EncryptedApiKey))
@@ -47,27 +53,33 @@ public class PixController(
         string secretDisplay;
         if (!string.IsNullOrEmpty(oneShotSecret))
             secretDisplay = "";
-        else if (!string.IsNullOrEmpty(cfg?.WebhookSecretHashHex))
+        else if (isStoreCfgValid)
             secretDisplay = "<stored securely – regenerate to view a new one>";
+        else if (effectiveUsesServer)
+            secretDisplay = "<using server configuration>";
         else
-            secretDisplay = "<will be generated on Save>";
+            secretDisplay = "<not configured>";
+        
+        var telegramCommand = string.IsNullOrEmpty(oneShotSecret)
+            ? null
+            : $"/registerwebhook deposit {webhookUrl} {oneShotSecret}";
         
         var model = new PixStoreViewModel
         {
-            IsEnabled              = cfg is { IsEnabled: true },
-            ApiKey                 = maskedApiKey,
+            IsEnabled = cfg is { IsEnabled: true },
+            ApiKey = maskedApiKey,
             UseWhitelist = cfg is { UseWhitelist: true },
-            PassFeeToCustomer       = cfg is { PassFeeToCustomer: true},
-            WebhookUrl             = webhookUrl,
-            WebhookSecretDisplay   = secretDisplay,
+            PassFeeToCustomer = cfg is { PassFeeToCustomer: true },
+            WebhookUrl = webhookUrl,
+            WebhookSecretDisplay = secretDisplay,
             OneShotSecretToDisplay = oneShotSecret,
             RegenerateWebhookSecret = false,
-            TelegramRegisterCommand = string.IsNullOrEmpty(oneShotSecret)
-                ? null
-                : $"/registerwebhook deposit {webhookUrl} {oneShotSecret}"
+            TelegramRegisterCommand = telegramCommand,
+            IsStoreCfgValid = isStoreCfgValid,
+            IsServerCfgValid = isServerCfgValid,
+            EffectiveUsesServerConfig = effectiveUsesServer
         };
-
-        return Task.FromResult<IActionResult>(View(model));
+        return View(model);
     }
 
     [HttpPost("settings")]
@@ -79,7 +91,6 @@ public class PixController(
 
         var cfg = store.GetPaymentMethodConfig<PixPaymentMethodConfig>(pmid, handlers)
                   ?? new PixPaymentMethodConfig();
-
         var newApiKey = !string.IsNullOrWhiteSpace(viewModel.ApiKey) && !viewModel.ApiKey.Contains('•');
         if (newApiKey)
         {
@@ -93,18 +104,28 @@ public class PixController(
             }
             cfg.EncryptedApiKey = protector.Protect(candidate);
         }
-
-        var hasApiKey  = !string.IsNullOrEmpty(cfg.EncryptedApiKey);
-        var willEnable = (newApiKey || viewModel.IsEnabled) && hasApiKey;
         
         string? oneShotSecretToDisplay = null;
-        var needsInitialSecret = string.IsNullOrEmpty(cfg.WebhookSecretHashHex);
-        if (needsInitialSecret || viewModel.RegenerateWebhookSecret)
+        var storeHasApiKey = !string.IsNullOrEmpty(cfg.EncryptedApiKey);
+        if (storeHasApiKey)
         {
-            var newSecret = Utils.GenerateHexSecret32();               // 32 bytes -> 64 hex chars
-            cfg.WebhookSecretHashHex = Utils.ComputeSecretHash(newSecret);
-            oneShotSecretToDisplay = newSecret;
+            var needsInitialSecret = string.IsNullOrEmpty(cfg.WebhookSecretHashHex);
+            if (needsInitialSecret || viewModel.RegenerateWebhookSecret)
+            {
+                var newSecret = Utils.GenerateHexSecret32();
+                cfg.WebhookSecretHashHex = Utils.ComputeSecretHash(newSecret);
+                oneShotSecretToDisplay = newSecret;
+            }
         }
+        
+        var effective = await depixService.GetEffectiveConfigAsync(cfg);
+        var effectiveConfigured = effective.Source != DepixService.DepixConfigSource.None;
+        var requestedEnable = newApiKey || viewModel.IsEnabled;
+        var willEnable = requestedEnable && effectiveConfigured;
+
+        if (requestedEnable && !effectiveConfigured)
+            TempData[WellKnownTempData.ErrorMessage] =
+                "Cannot enable DePix: neither store nor server configuration is complete (API key + webhook secret).";
 
         cfg.IsEnabled = willEnable;
         cfg.UseWhitelist = viewModel.UseWhitelist;

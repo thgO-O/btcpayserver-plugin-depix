@@ -1,25 +1,27 @@
 @using BTCPayServer
 @using BTCPayServer.Abstractions.Extensions
-@using Microsoft.AspNetCore.Mvc.TagHelpers
+@using BTCPayServer.Plugins.Depix
 @model BTCPayServer.Plugins.Depix.Data.Models.ViewModels.PixStoreViewModel
 
 @{
     #nullable enable
-    
+
     WalletId? walletId = null;
     var queryWalletId = Context.Request.Query["walletId"].ToString();
     if (!string.IsNullOrEmpty(queryWalletId) && WalletId.TryParse(queryWalletId, out var parsedWalletId))
         walletId = parsedWalletId;
 
     ViewData.SetActivePage(
-        activePage: "PixSettings",                                             
-        category: typeof(BTCPayServer.Views.Wallets.WalletsNavPages).ToString(),
-        title: "Pix Settings",                                                  
-        activeId: walletId?.ToString() ?? "PixSettings"                                            
+        activePage: "PixSettings",
+        category: DePixPlugin.PluginNavKey,
+        title: "Pix Settings",
+        activeId: walletId?.ToString() ?? "PixSettings"
     );
+
+    var hasAnyEffectiveConfig = Model.IsStoreCfgValid || Model.EffectiveUsesServerConfig;
 }
 
-<form method="post" asp-action="PixSettings" asp-route-walletId="@walletId">
+<form method="post" asp-action="PixSettings" asp-route-walletId="@(walletId?.ToString())">
     <div class="sticky-header d-flex align-items-center justify-content-between">
         <h2 class="mb-0">@ViewData["Title"]</h2>
         <input type="submit" class="btn btn-primary" value="Save" />
@@ -29,6 +31,15 @@
 
     <div class="row">
         <div class="col-md-8">
+
+            @if (Model.EffectiveUsesServerConfig && !Model.IsStoreCfgValid)
+            {
+                <div class="alert alert-info my-4">
+                    A <strong>server-level DePix Api Key configuration</strong> is available.
+                    If you do not configure for this store, the server configuration will be used.
+                </div>
+            }
+
             <div class="form-group my-4">
                 <label asp-for="ApiKey">DePix API Key</label>
                 <input asp-for="ApiKey" type="text" class="form-control" />
@@ -39,10 +50,12 @@
                     <a href="https://www.depix.info/#partners" target="_blank" rel="noopener noreferrer">
                         depix.info/#partners
                     </a>.
+                    <br />
+                    If this server is configured by the server admin, you may not need to set a store API key.
                 </small>
             </div>
 
-        @if (!string.IsNullOrEmpty(Model.ApiKey))
+            @if (hasAnyEffectiveConfig)
             {
                 <div class="my-4">
                     <label class="d-flex align-items-center">
@@ -50,110 +63,121 @@
                         <span>Enable Pix</span>
                     </label>
                 </div>
-                
-                <div class="my-3">
-                    <label class="d-flex align-items-center">
-                        <input asp-for="PassFeeToCustomer" type="checkbox" class="btcpay-toggle me-2" />
-                        <span>Pass DePix fee to customer</span>
-                    </label>
-                    <small class="text-muted d-block">
-                        When enabled, R$ 1.00 is added to the QR amount (customer pays the DePix fee).
-                    </small>
-                </div>
-                
-                <div class="my-3">
-                    <label class="d-flex align-items-center">
-                        <input asp-for="UseWhitelist" type="checkbox" class="btcpay-toggle me-2" />
-                        <span>Whitelist mode</span>
-                    </label>
-                    <small class="text-muted d-block">
-                        When enabled, the deposit request will include <code>whitelist</code> = <code>true</code>. Only enable this if you know what you are doing.
-                    </small>
-                </div>
-                
-                <div class="card my-4">
-                    <div class="card-header d-flex align-items-center justify-content-between">
-                        <span>Webhook</span>
-                    </div>
-                    <div class="card-body">
-                        <p class="text-muted mb-3">
-                            Register this webhook on Telegram with Eulen:
-                            <code>/registerwebhook deposit &lt;url&gt; &lt;secret&gt;</code>
-                        </p>
 
-                        <div class="form-group mb-3">
-                            <label asp-for="WebhookUrl">Webhook URL</label>
-                            <div class="input-group">
-                                <input asp-for="WebhookUrl" class="form-control" id="WebhookUrl" readonly/>
-                                <button type="button" class="btn btn-outline-secondary"
-                                        data-clipboard-target="#WebhookUrl">
-                                    Copy
-                                </button>
-                            </div>
+                @if (Model.IsStoreCfgValid)
+                {
+                    <div class="my-3">
+                        <label class="d-flex align-items-center">
+                            <input asp-for="PassFeeToCustomer" type="checkbox" class="btcpay-toggle me-2" />
+                            <span>Pass DePix fee to customer</span>
+                        </label>
+                        <small class="text-muted d-block">
+                            When enabled, R$ 1.00 is added to the QR amount (customer pays the DePix fee).
+                        </small>
+                    </div>
+                    
+                    <div class="my-3">
+                        <label class="d-flex align-items-center">
+                            <input asp-for="UseWhitelist" type="checkbox" class="btcpay-toggle me-2" />
+                            <span>Whitelist mode</span>
+                        </label>
+                        <small class="text-muted d-block">
+                            When enabled, the deposit request will include <code>whitelist</code> = <code>true</code>. Only enable this if you know what you are doing.
+                        </small>
+                    </div>
+                    
+                    <div class="card my-4">
+                        <div class="card-header d-flex align-items-center justify-content-between">
+                            <span>Webhook</span>
                         </div>
+                        <div class="card-body">
 
-                        @if (!string.IsNullOrEmpty(Model.OneShotSecretToDisplay))
-                        {
-                            <div class="alert alert-warning">
-                                <strong>Copy this secret now.</strong> It will not be shown again.
-                            </div>
-
-                            <div class="form-group mb-3">
-                                <label>Webhook Secret (one‑time view)</label>
-                                <div class="input-group">
-                                    <input value="@Model.OneShotSecretToDisplay" class="form-control" id="OneShotSecret" readonly/>
-                                    <button type="button" class="btn btn-outline-secondary"
-                                            data-clipboard-target="#OneShotSecret">
-                                        Copy
-                                    </button>
-                                </div>
-                                <small class="form-text text-muted">
-                                    32 bytes hex (64 chars).
-                                </small>
-                            </div>
+                            <p class="text-muted mb-3">
+                                Register this webhook on Telegram with Eulen:
+                                <code>/registerwebhook deposit &lt;url&gt; &lt;secret&gt;</code>
+                            </p>
 
                             <div class="form-group mb-3">
-                                <label>Telegram command</label>
+                                <label asp-for="WebhookUrl">Webhook URL</label>
                                 <div class="input-group">
-                                    <input value="/registerwebhook deposit @Model.WebhookUrl @Model.OneShotSecretToDisplay"
-                                           class="form-control" id="TelegramRegisterCommand" readonly/>
+                                    <input asp-for="WebhookUrl" class="form-control" id="WebhookUrl" readonly />
                                     <button type="button" class="btn btn-outline-secondary"
-                                            data-clipboard-target="#TelegramRegisterCommand">
+                                            data-clipboard-target="#WebhookUrl">
                                         Copy
                                     </button>
                                 </div>
                             </div>
-                        }
-                        else
-                        {
-                            <div class="form-group mb-3">
-                                <label>Webhook Secret</label>
-                                <input value="@Model.WebhookSecretDisplay" class="form-control" id="WebhookSecretDisplay" readonly/>
-                                <small class="form-text text-muted">
-                                    If empty, Save to generate. If you lost it, check “Regenerate secret” and Save to get a new one‑time secret.
-                                </small>
-                            </div>
 
-                            <div class="form-check mb-3">
-                                <input class="form-check-input" asp-for="RegenerateWebhookSecret" id="RegenerateWebhookSecret" type="checkbox"/>
-                                <label class="form-check-label" for="RegenerateWebhookSecret">
-                                    Regenerate secret on save
-                                </label>
-                            </div>
-
-                            <div class="form-group mb-3">
-                                <label>Telegram command</label>
-                                <div class="input-group">
-                                    <input value="/registerwebhook deposit @Model.WebhookUrl <SECRET_WILL_BE_GENERATED>"
-                                           class="form-control" id="TelegramRegisterCommand" readonly/>
-                                    <button type="button" class="btn btn-outline-secondary"
-                                            data-clipboard-target="#TelegramRegisterCommand">
-                                        Copy
-                                    </button>
+                            @if (!string.IsNullOrEmpty(Model.OneShotSecretToDisplay))
+                            {
+                                <div class="alert alert-warning">
+                                    <strong>Copy this secret now.</strong> It will not be shown again.
                                 </div>
-                            </div>
-                        }
+
+                                <div class="form-group mb-3">
+                                    <label>Webhook Secret (one-time view)</label>
+                                    <div class="input-group">
+                                        <input value="@Model.OneShotSecretToDisplay" class="form-control" id="OneShotSecret" readonly />
+                                        <button type="button" class="btn btn-outline-secondary"
+                                                data-clipboard-target="#OneShotSecret">
+                                            Copy
+                                        </button>
+                                    </div>
+                                    <small class="form-text text-muted">
+                                        32 bytes hex (64 chars).
+                                    </small>
+                                </div>
+
+                                <div class="form-group mb-3">
+                                    <label>Telegram command</label>
+                                    <div class="input-group">
+                                        <input value="/registerwebhook deposit @Model.WebhookUrl @Model.OneShotSecretToDisplay"
+                                               class="form-control" id="TelegramRegisterCommand" readonly />
+                                        <button type="button" class="btn btn-outline-secondary"
+                                                data-clipboard-target="#TelegramRegisterCommand">
+                                            Copy
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="form-group mb-3">
+                                    <label>Webhook Secret</label>
+                                    <input value="@Model.WebhookSecretDisplay" class="form-control" id="WebhookSecretDisplay" readonly />
+                                    <small class="form-text text-muted">
+                                        If empty, Save to generate. If you lost it, check “Regenerate secret” and Save to get a new one-time secret.
+                                    </small>
+                                </div>
+
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" asp-for="RegenerateWebhookSecret" id="RegenerateWebhookSecret" type="checkbox" />
+                                    <label class="form-check-label" for="RegenerateWebhookSecret">
+                                        Regenerate secret on save
+                                    </label>
+                                </div>
+
+                                <div class="form-group mb-3">
+                                    <label>Telegram command</label>
+                                    <div class="input-group">
+                                        <input value="/registerwebhook deposit @Model.WebhookUrl <SECRET_WILL_BE_GENERATED>"
+                                               class="form-control" id="TelegramRegisterCommand" readonly />
+                                        <button type="button" class="btn btn-outline-secondary"
+                                                data-clipboard-target="#TelegramRegisterCommand">
+                                            Copy
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
                     </div>
+                }
+            }
+            else
+            {
+                <div class="alert alert-warning my-4">
+                    DePix is not configured. Configure a store API key and Save to generate a webhook secret,
+                    or ask the server administrator to configure DePix at the server level.
                 </div>
             }
         </div>
