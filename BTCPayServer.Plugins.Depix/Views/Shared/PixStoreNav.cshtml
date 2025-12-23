@@ -1,20 +1,30 @@
 @using BTCPayServer.Abstractions.Contracts
+@using BTCPayServer.Abstractions.Extensions
 @using BTCPayServer.Data
+@using BTCPayServer.Plugins.Depix
 @using BTCPayServer.Plugins.Depix.Services
 @using Microsoft.AspNetCore.Identity
-@using Microsoft.AspNetCore.Mvc.TagHelpers
-@inject SignInManager<ApplicationUser> SignInManager;
+
+@inject SignInManager<ApplicationUser> SignInManager
 @inject IScopeProvider ScopeProvider
 @inject DepixService DepixService
 @{
     var storeId = ScopeProvider.GetCurrentStoreId();
+    var category = DePixPlugin.PluginNavKey;
+
+    var controller = ViewContext.RouteData.Values["controller"] as string ?? "";
+    var isPixSection = controller.Equals("Pix", StringComparison.OrdinalIgnoreCase);
+
+    var pixTransactionsActive = ViewData.ActivePageClass("PixTransactions", category);
+    var pixSettingsActive = ViewData.ActivePageClass("PixSettings", category);
 }
+
 @if (SignInManager.IsSignedIn(User) && !string.IsNullOrEmpty(storeId))
 {
     var isEnabled = await DepixService.IsPixEnabled(storeId);
-    
+
     <li class="nav-item">
-        <a class="nav-link @(isEnabled ? "active" : "")"
+        <a class="nav-link @(pixTransactionsActive == "active" ? "active" : "")"
            asp-route-storeId="@storeId"
            asp-action="PixTransactions"
            asp-controller="Pix">
@@ -22,4 +32,17 @@
             <span>Pix</span>
         </a>
     </li>
+
+    @if (isPixSection)
+    {
+        <li class="nav-item">
+            <a class="nav-link nav-item-sub @(pixSettingsActive == "active" ? "active" : "")"
+               asp-route-storeId="@storeId"
+               asp-action="PixSettings"
+               asp-controller="Pix">
+                <span class="icon"><i class="fa fa-key"></i></span>
+                <span>Settings</span>
+            </a>
+        </li>
+    }
 }
