@@ -38,18 +38,23 @@ public class PixPaymentMethodHandler(
         if (ParsePaymentMethodConfig(store.GetPaymentMethodConfigs()[PaymentMethodId]) is not PixPaymentMethodConfig pixCfg)
             throw new PaymentMethodUnavailableException("DePix payment method not configured");
 
-        var apiKey = secretProtector.Unprotect(pixCfg.EncryptedApiKey ?? "");
+        var effectiveConfig = await depixService.GetEffectiveConfigAsync(pixCfg);
+        if (effectiveConfig.Source == DepixService.DepixConfigSource.None)
+            throw new PaymentMethodUnavailableException("DePix API key/webhook secret not configured (store or server)");
+        
+        var apiKey = secretProtector.Unprotect(effectiveConfig.EncryptedApiKey);
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new PaymentMethodUnavailableException("DePix API key not configured");
 
         var amountInBrl = context.Prompt.Calculate().Due;
+        if (effectiveConfig.PassFeeToCustomer) amountInBrl += 1.00m;
         var amountInCents = (int)Math.Round(amountInBrl * 100m, MidpointRounding.AwayFromZero);
 
         using var client = depixService.CreateDepixClient(apiKey);
 
         var address = await depixService.GenerateFreshDePixAddress(store.Id);
 
-        var deposit = await depixService.RequestDepositAsync(client, amountInCents, address, pixCfg.UseWhitelist, CancellationToken.None);
+        var deposit = await depixService.RequestDepositAsync(client, amountInCents, address, effectiveConfig.UseWhitelist, CancellationToken.None);
 
         depixService.ApplyPromptDetails(context, deposit, address);
     }
