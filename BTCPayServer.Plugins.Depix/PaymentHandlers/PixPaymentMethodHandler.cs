@@ -19,17 +19,19 @@ public class PixPaymentMethodHandler(
     public PaymentMethodId PaymentMethodId => DePixPlugin.PixPmid;
     public BTCPayNetwork Network { get; } = networkProvider.GetNetwork<ElementsBTCPayNetwork>("DePix");
 
-    public Task BeforeFetchingRates(PaymentMethodContext context)
+    public async Task BeforeFetchingRates(PaymentMethodContext context)
     {
         context.Prompt.Currency = "BRL";
         context.Prompt.Divisibility = 2;
-        
+
         var cfgToken = context.Store.GetPaymentMethodConfigs().TryGetValue(PaymentMethodId, out var token) ? token : null;
         var pixCfg = cfgToken is null ? null : ParsePaymentMethodConfig(cfgToken) as PixPaymentMethodConfig;
-        var merchantPays = pixCfg?.PassFeeToCustomer != true;
-        context.Prompt.PaymentMethodFee = merchantPays ? 0.00m : 1.00m;
+        var effectiveConfig = await depixService.GetEffectiveConfigAsync(pixCfg);
         
-        return Task.CompletedTask;
+        context.Prompt.PaymentMethodFee = effectiveConfig.Source != DepixService.DepixConfigSource.None &&
+                                          effectiveConfig.PassFeeToCustomer
+            ? 1.00m
+            : 0.00m;
     }
 
     public async Task ConfigurePrompt(PaymentMethodContext context)
