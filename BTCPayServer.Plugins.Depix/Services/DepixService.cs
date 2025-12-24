@@ -9,6 +9,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using BTCPayServer.Abstractions.Contracts;
 using BTCPayServer.Data;
 using BTCPayServer.Events;
 using BTCPayServer.Hosting;
@@ -42,11 +43,24 @@ public class DepixService(
     ILogger<PixPaymentMethodHandler> logger,
     ApplicationDbContextFactory dbFactory,
     EventAggregator events,
-    DisplayFormatter displayFormatter
+    DisplayFormatter displayFormatter,
+    ISettingsRepository settingsRepository 
 )
 {
     
-
+    public enum DepixConfigSource
+    {
+        None,
+        Store,
+        Server
+    }
+    public record EffectivePixConfig(
+        DepixConfigSource Source,
+        string? EncryptedApiKey,
+        string? WebhookSecretHashHex,
+        bool UseWhitelist,
+        bool PassFeeToCustomer);
+    
     public async Task<bool> IsDePixEnabled(string storeId)
     {
         try
@@ -85,9 +99,11 @@ public class DepixService(
 
         var dePixActive = await IsDePixEnabled(storeId);
 
-        var pixCfg           = store.GetPaymentMethodConfig<PixPaymentMethodConfig>(DePixPlugin.PixPmid, handlers);
+        var pixCfg = store.GetPaymentMethodConfig<PixPaymentMethodConfig>(DePixPlugin.PixPmid, handlers);
+        var effectiveConfig = await GetEffectiveConfigAsync(pixCfg);
+
         var pixEnabled       = pixCfg?.IsEnabled == true;
-        var apiKeyConfigured = !string.IsNullOrEmpty(pixCfg?.EncryptedApiKey);
+        var apiKeyConfigured = effectiveConfig.Source != DepixConfigSource.None;
 
         return new PixConfigStatus(dePixActive, pixEnabled, apiKeyConfigured);
     }
@@ -306,58 +322,82 @@ public class DepixService(
     {
         try
         {
-            var invoiceId = await FindInvoiceIdByQrIdAsync(storeId, body.QrId, cancellationToken);
+            var invoiceId = await FindInvoiceIdByQrIdAsync(body.QrId, storeId, cancellationToken);
             if (invoiceId is null)
             {
                 logger.LogWarning("Depix webhook: invoice not found for store {StoreId} and qrId {QrId}", storeId, body.QrId);
                 return;
             }
 
-            var entity = await invoiceRepository.GetInvoice(invoiceId);
-            if (entity is null)
-            {
-                logger.LogWarning("Depix webhook: invoice entity null for {InvoiceId}", invoiceId);
-                return;
-            }
-
-            var pmid = DePixPlugin.PixPmid;
-            var pixPrompt = entity.GetPaymentPrompt(pmid);
-            if (pixPrompt is null)
-            {
-                logger.LogWarning("Depix webhook: PIX prompt not found on invoice {InvoiceId}", invoiceId);
-                return;
-            }
-
-            var details = pixPrompt.Details as JObject ?? new JObject();
-            if (body.BankTxId is not null)       details["bankTxId"]       = body.BankTxId;
-            if (body.BlockchainTxId is not null) details["blockchainTxID"] = body.BlockchainTxId;
-            if (body.Status is not null)         details["status"]         = body.Status;
-            if (body.ValueInCents is not null)   details["valueInCents"]   = body.ValueInCents;
-            if (body.Expiration is not null)     details["expiration"]     = body.Expiration;
-            if (body.PixKey is not null)         details["pixKey"]         = body.PixKey;
-
-            if (body.PayerName is not null || body.PayerEuid is not null ||
-                body.PayerTaxNumber is not null || body.CustomerMessage is not null)
-            {
-                var payer = (JObject?)details["payer"] ?? new JObject();
-                if (body.PayerName is not null)       payer["name"]      = body.PayerName;
-                if (body.PayerEuid is not null)       payer["euid"]      = body.PayerEuid;
-                if (body.PayerTaxNumber is not null)  payer["taxNumber"] = body.PayerTaxNumber;
-                if (body.CustomerMessage is not null) payer["message"]   = body.CustomerMessage;
-                details["payer"] = payer;
-            }
-
-            await invoiceRepository.UpdatePaymentDetails(invoiceId, pmid, details);
-
-            if (DepixStatusExtensions.TryParse(body.Status, out var depixStatus))
-                await ApplyStatusAndNotifyAsync(invoiceId, depixStatus);
+            await ProcessWebhookForInvoiceAsync(invoiceId, body, cancellationToken);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Depix webhook processing failed for store {StoreId}", storeId);
         }
     }
+    
+    public async Task ProcessWebhookAsync(DepositWebhookBody body, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var invoiceId = await FindInvoiceIdByQrIdAsync(body.QrId, storeId: null, cancellationToken);
+            if (invoiceId is null)
+            {
+                logger.LogWarning("Depix webhook (server): invoice not found for qrId {QrId}", body.QrId);
+                return;
+            }
 
+            await ProcessWebhookForInvoiceAsync(invoiceId, body, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Depix webhook (server) processing failed");
+        }
+    }
+    
+    private async Task ProcessWebhookForInvoiceAsync(string invoiceId, DepositWebhookBody body, CancellationToken cancellationToken)
+    {
+        var entity = await invoiceRepository.GetInvoice(invoiceId);
+        if (entity is null)
+        {
+            logger.LogWarning("Depix webhook: invoice entity null for {InvoiceId}", invoiceId);
+            return;
+        }
+
+        var pmid = DePixPlugin.PixPmid;
+        var pixPrompt = entity.GetPaymentPrompt(pmid);
+        if (pixPrompt is null)
+        {
+            logger.LogWarning("Depix webhook: PIX prompt not found on invoice {InvoiceId}", invoiceId);
+            return;
+        }
+
+        var details = pixPrompt.Details as JObject ?? new JObject();
+        if (body.BankTxId is not null)       details["bankTxId"]       = body.BankTxId;
+        if (body.BlockchainTxId is not null) details["blockchainTxID"] = body.BlockchainTxId;
+        if (body.Status is not null)         details["status"]         = body.Status;
+        if (body.ValueInCents is not null)   details["valueInCents"]   = body.ValueInCents;
+        if (body.Expiration is not null)     details["expiration"]     = body.Expiration;
+        if (body.PixKey is not null)         details["pixKey"]         = body.PixKey;
+
+        if (body.PayerName is not null || body.PayerEuid is not null ||
+            body.PayerTaxNumber is not null || body.CustomerMessage is not null)
+        {
+            var payer = (JObject?)details["payer"] ?? new JObject();
+            if (body.PayerName is not null)       payer["name"]      = body.PayerName;
+            if (body.PayerEuid is not null)       payer["euid"]      = body.PayerEuid;
+            if (body.PayerTaxNumber is not null)  payer["taxNumber"] = body.PayerTaxNumber;
+            if (body.CustomerMessage is not null) payer["message"]   = body.CustomerMessage;
+            details["payer"] = payer;
+        }
+
+        await invoiceRepository.UpdatePaymentDetails(invoiceId, pmid, details);
+
+        if (DepixStatusExtensions.TryParse(body.Status, out var depixStatus))
+            await ApplyStatusAndNotifyAsync(invoiceId, depixStatus);
+    }
+    
     private async Task ApplyStatusAndNotifyAsync(string invoiceId, DepixStatus depix)
     {
         var entity = await invoiceRepository.GetInvoice(invoiceId);
@@ -386,23 +426,64 @@ public class DepixService(
 
         return handler.ParsePaymentMethodConfig(raw) as PixPaymentMethodConfig;
     }
+    
+    public async Task<PixServerConfig> GetServerConfigAsync()
+    {
+        return await settingsRepository.GetSettingAsync<PixServerConfig>() ?? new PixServerConfig();
+    }
+    
+    public static bool IsConfigValid(string? encryptedApiKey, string? webhookSecretHashHex)
+        => !string.IsNullOrEmpty(encryptedApiKey) && !string.IsNullOrEmpty(webhookSecretHashHex);
 
-    private async Task<string?> FindInvoiceIdByQrIdAsync(string storeId, string qrId, CancellationToken ct)
+    public async Task<EffectivePixConfig> GetEffectiveConfigAsync(PixPaymentMethodConfig? storeCfg)
+    {
+        if (storeCfg is not null && IsConfigValid(storeCfg.EncryptedApiKey, storeCfg.WebhookSecretHashHex))
+        {
+            return new EffectivePixConfig(
+                DepixConfigSource.Store,
+                storeCfg.EncryptedApiKey,
+                storeCfg.WebhookSecretHashHex,
+                storeCfg.UseWhitelist,
+                storeCfg.PassFeeToCustomer);
+        }
+
+        var serverCfg = await GetServerConfigAsync();
+        if (IsConfigValid(serverCfg.EncryptedApiKey, serverCfg.WebhookSecretHashHex))
+        {
+            return new EffectivePixConfig(
+                DepixConfigSource.Server,
+                serverCfg.EncryptedApiKey,
+                serverCfg.WebhookSecretHashHex,
+                serverCfg.UseWhitelist,
+                serverCfg.PassFeeToCustomer);
+        }
+
+        return new EffectivePixConfig(
+            DepixConfigSource.None,
+            null,
+            null,
+            false,
+            false);
+    }
+    
+    private async Task<string?> FindInvoiceIdByQrIdAsync(string qrId, string? storeId, CancellationToken ct)
     {
         await using var db = dbFactory.CreateContext();
         var conn = db.Database.GetDbConnection();
         if (conn.State != System.Data.ConnectionState.Open)
             await conn.OpenAsync(ct);
 
-        const string sql = @"
-            SELECT ""Id""
-            FROM ""Invoices""
-            WHERE ""StoreDataId"" = @storeId
-              AND (""Blob2""->'prompts'->'PIX'->'details'->>'qrId') = @qrId
-            LIMIT 1;";
+        const string sql = """
+                           SELECT "Id"
+                           FROM "Invoices"
+                           WHERE (@storeId IS NULL OR "StoreDataId" = @storeId)
+                             AND ("Blob2"->'prompts'->'PIX'->'details'->>'qrId') = @qrId
+                           ORDER BY "Created" DESC
+                           LIMIT 1;
+                           """;
 
-        return await conn.QueryFirstOrDefaultAsync<string?>(new CommandDefinition(sql,
-            new { storeId, qrId }, cancellationToken: ct));
+        return await conn.QueryFirstOrDefaultAsync<string?>(
+            new CommandDefinition(sql, new { qrId, storeId }, cancellationToken: ct));
     }
     
     public void InitDePix(IServiceCollection services)

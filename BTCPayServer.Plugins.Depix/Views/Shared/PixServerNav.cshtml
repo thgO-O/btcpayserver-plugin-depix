@@ -1,0 +1,9 @@
+@using BTCPayServer.Abstractions.Extensions
+
+<li class="nav-item">
+    <a class="nav-link nav-item-sub @ViewData.ActivePageClass("PixServerSettings", typeof(BTCPayServer.Views.Server.ServerNavPages).ToString())"
+       asp-controller="PixServerSettings" asp-action="PixServerSettings">
+        <span class="icon"><i class="fa fa-key"></i></span>
+        <span>Pix</span>
+    </a>
+</li>

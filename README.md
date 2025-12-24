@@ -1,6 +1,6 @@
 # DePix Plugin for BTCPay Server
 
-Accept **Pix** payments in your BTCPay Server store and receive funds in **DePix** (a Liquid-based BRL stablecoin). This guide is written for BTCPay store owners and focuses on setup and day‑to‑day use.
+Accept **Pix** payments in your BTCPay Server store and receive funds in **DePix** (a Liquid-based BRL stablecoin). This guide is written for BTCPay store owners and server admins and focuses on setup and day-to-day use.
 
 ---
 
@@ -8,7 +8,7 @@ Accept **Pix** payments in your BTCPay Server store and receive funds in **DePix
 
 * Adds Liquid Network Stablecoin **DePix** as a payment method to your BTCPay store.
 * Adds **Pix** as a payment method to your BTCPay store (via DePix).
-* After you save your DePix API key, Pix is **enabled automatically** and appears on newly created invoices (from **Invoices**) and in your **Point of Sale (POS)** apps.
+* After you save a valid DePix configuration, Pix can be enabled and appears on newly created invoices (from **Invoices**) and in your **Point of Sale (POS)** apps.
 * Provides a **Pix Transactions** page to monitor deposits and statuses.
 * Funds settle to your **DePix (Liquid) wallet**.
 
@@ -19,7 +19,7 @@ Accept **Pix** payments in your BTCPay Server store and receive funds in **DePix
 ## Requirements
 
 * BTCPay Server 2.x
-* A **DePix partner API key** — request at [https://www.depix.info/#partners](https://www.depix.info/#partners)
+* A **DePix partner API key** — request at https://www.depix.info/#partners
 
 ---
 
@@ -30,42 +30,95 @@ Accept **Pix** payments in your BTCPay Server store and receive funds in **DePix
 
 ![DePix plugin installed](docs/img/depix-plugin-installed.png)
 
-> When installed, the DePix (Liquid) asset is prepared for your store. You only need to create your DePix wallet, go to Pix Settings and enter your API key to enable Pix payments.
+> When installed, the DePix (Liquid) asset is prepared for your store. You only need to create your DePix wallet and configure DePix (store-level or server-level) to enable Pix payments.
 
 ---
 
-## Pix setup (3 quick steps)
+## Create your DePix wallet (choose one)
 
-1. **Create your DePix wallet (choose one)**
-   - **Option A — External (Aqua via SamRock Plugin, xpub import)**
-      1) In BTCPay: Plugins → Manage Plugins → install **SamRock**; open SamRock and **scan** the pairing QR with the **Aqua** app.
-      2) **Wallets** → **Liquid Bitcoin** → **Settings** → **Derivation Scheme** → **copy the LBTC xpub**.
-      3) **Wallets → DePix → Connect an existing wallet → Enter extended public key** → **paste the LBTC xpub** → Continue.  
-         *Result:* BTCPay derives Liquid/DePix receiving addresses from this xpub, so **deposits go directly to your Aqua wallet**. *(Only the **public** key is used; no private keys leave Aqua.)*
+### Option A — External (Aqua via SamRock Plugin, xpub import)
 
-   - **Option B — BTCPay Hot Wallet**
-      1) **Wallets → DePix → Create new wallet → Hot wallet**.  
-         To spend from your own Elements/Liquid node later, import the generated keys using **Liquid+** and `elements-cli` (see **Balance and spending DePix**).
+1) In BTCPay: Plugins → Manage Plugins → install **SamRock**; open SamRock and **scan** the pairing QR with the **Aqua** app.
+2) **Wallets** → **Liquid Bitcoin** → **Settings** → **Derivation Scheme** → **copy the LBTC xpub**.
+3) **Wallets → DePix → Connect an existing wallet → Enter extended public key** → paste the LBTC xpub → Continue.
 
-2. **Enter your API key**
-   Go to **Wallets → DePix → Pix Settings** and paste your **DePix API key**. If you don’t have one yet, request it at [https://www.depix.info/#partners](https://www.depix.info/#partners). Click **Save**.
+Result: BTCPay derives Liquid/DePix receiving addresses from this xpub, so **deposits go directly to your Aqua wallet**.  
+(Only the **public** key is used; no private keys leave Aqua.)
 
-   ![Pix Settings](docs/img/pix-settings.png)
+### Option B — BTCPay Hot Wallet
 
-3. **Register the webhook** (optional but recommended)
-   After saving the API key, the **Webhook** section appears:
+1) **Wallets → DePix → Create new wallet → Hot wallet**.
+2) To spend from your own Elements/Liquid node later, import the generated keys using **Liquid+** and `elements-cli` (see **Balance and spending DePix**).
 
-   * Copy the Telegram Command with **Webhook URL** and the **one‑time secret** shown on the page.
-   * In the DePix Telegram bot (Eulen), register:
+---
 
-     ```
-     /registerwebhook deposit <WEBHOOK_URL> <SECRET>
-     ```
+## Configuration scopes (Store vs Server)
 
-   This enables **real‑time updates** for paid invoices.
+DePix can be configured in one of two places:
 
-4. **Done**
-   The **Pix** payment method is now **configured automatically** and available on invoices and POS.
+### Store configuration (recommended for most users)
+Path: **Wallets → Pix → Settings**
+
+Use this when:
+- You want store-specific behavior (fee/whitelist) and full control at store level, or
+- Your server admin did not configure DePix globally.
+
+### Server configuration (optional, for server admins)
+Path: **Server Settings → Pix (Pix Server Settings)**
+
+Use this when:
+- You run a BTCPay Server instance and want a **default configuration** for many stores with same API Key and Webhook.
+
+### Precedence (what gets used)
+- If the store has a complete **store configuration** (API key + webhook secret), **store config is used**.
+- Otherwise, if the server has a complete **server configuration**, **server config is used**.
+- If neither exists, Pix cannot be enabled.
+
+> When a store is using **server configuration**, the store does not manage webhook secrets. Webhook registration is handled by the server admin.
+
+---
+
+## Store setup (Wallets → Pix → Settings)
+
+1. Go to **Wallets → Pix → Settings**
+2. Paste your **DePix API key** and click **Save**
+3. (Optional) Configure store behavior (only applies when the store has its own API key):
+   - **Pass fee to customer**
+   - **Whitelist mode**
+
+![Pix Settings](docs/img/pix-settings.png)
+
+---
+
+## Server-wide setup (Server Settings → Pix)
+
+This is for BTCPay Server admins who want to configure DePix once and let stores inherit it.
+
+1. Go to **Server Settings → Pix (Pix Server Settings)**
+2. Paste the **server DePix API key** and click **Save**
+3. Configure defaults for stores that rely on server config:
+   - **Pass fee to customer**
+   - **Whitelist mode**
+
+![Pix Server Settings](docs/img/pix-server-settings.png)
+
+---
+
+## Webhook registration (same flow for Store or Server)
+
+After you click **Save** (either in **store settings** or **server settings**), the page will show:
+
+- **Webhook URL**
+- **One-time secret**
+- A ready-to-copy **Telegram command**
+
+**Do this immediately:** copy the Telegram command **before refreshing or leaving the page**.  
+The secret is **one-time view**. If you miss it, you must **Regenerate secret** and click **Save** again.
+
+In the DePix Telegram bot (Eulen), run the command exactly as shown on the page.
+
+Notes:
+> Stores using server configuration do not have access to the server secret. The server admin should register the webhook.
 
 ---
 
@@ -74,13 +127,10 @@ Accept **Pix** payments in your BTCPay Server store and receive funds in **DePix
 * **Invoices**: create an invoice as usual; customers will see **Pix** as a payment method.
 * **POS**: generate charges from your Point of Sale; Pix is available.
 
-  ![Pix Invoice](docs/img/pix-invoice.png)
-
+![Pix Invoice](docs/img/pix-invoice.png)
 
 * **Transactions**: go to **Wallets → Pix** to track Pix deposits (status, ID, amount, time, etc.).
-* **DePix Balance**: go to **Wallets → DePix** to track the received DePix converted from successful Pix Transactions
-
-> Tip: if you lose the webhook secret, check **Regenerate secret** on the settings page and save. A new one‑time secret will be shown so you can re‑register it in the bot.
+* **DePix Balance**: go to **Wallets → DePix** to track the received DePix converted from successful Pix transactions.
 
 ---
 
@@ -88,8 +138,13 @@ Accept **Pix** payments in your BTCPay Server store and receive funds in **DePix
 
 After a Pix payment, funds settle to your **DePix (Liquid) wallet**.
 
-To **spend/transfer** your DePix:
+### Which setup are you using?
 
+- **SamRock + Aqua (xpub)**: funds go to your **Aqua wallet**. Spend them normally from Aqua — you **do not** need Liquid+ or `elements-cli`.
+- **BTCPay Hot Wallet**: follow the steps below to spend via your **Elements/Liquid node** (Liquid+).
+
+---
+### Spend DePix from a BTCPay Hot Wallet (Liquid+ + elements-cli)
 1. Install the **Liquid+** plugin in BTCPay Server.
 2. Click on Liquid at the sidebar under the Store Settings.
 3. Use Liquid+ to run the key imports on your Elements/Liquid node:
@@ -135,7 +190,7 @@ At [https://www.depix.info/#partners](https://www.depix.info/#partners)
 No, but it’s **recommended** so you receive real‑time payment updates.
 
 **Pix doesn’t appear as a payment method. What should I check?**
-Make sure you’ve **saved** your API key in the DePix store settings. After saving, Pix is enabled automatically.
+Make sure DePix is configured either in Wallets → Pix → Settings (store) or by the server admin in Server Settings → DePix (server). Once a complete configuration exists, Pix can be enabled and will appear on invoices/POS.
 
 ---
 

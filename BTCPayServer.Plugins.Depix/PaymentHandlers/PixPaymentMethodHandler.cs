@@ -19,17 +19,19 @@ public class PixPaymentMethodHandler(
     public PaymentMethodId PaymentMethodId => DePixPlugin.PixPmid;
     public BTCPayNetwork Network { get; } = networkProvider.GetNetwork<ElementsBTCPayNetwork>("DePix");
 
-    public Task BeforeFetchingRates(PaymentMethodContext context)
+    public async Task BeforeFetchingRates(PaymentMethodContext context)
     {
         context.Prompt.Currency = "BRL";
         context.Prompt.Divisibility = 2;
-        
+
         var cfgToken = context.Store.GetPaymentMethodConfigs().TryGetValue(PaymentMethodId, out var token) ? token : null;
         var pixCfg = cfgToken is null ? null : ParsePaymentMethodConfig(cfgToken) as PixPaymentMethodConfig;
-        var merchantPays = pixCfg?.PassFeeToCustomer != true;
-        context.Prompt.PaymentMethodFee = merchantPays ? 0.00m : 1.00m;
+        var effectiveConfig = await depixService.GetEffectiveConfigAsync(pixCfg);
         
-        return Task.CompletedTask;
+        context.Prompt.PaymentMethodFee = effectiveConfig.Source != DepixService.DepixConfigSource.None &&
+                                          effectiveConfig.PassFeeToCustomer
+            ? 1.00m
+            : 0.00m;
     }
 
     public async Task ConfigurePrompt(PaymentMethodContext context)
@@ -38,18 +40,23 @@ public class PixPaymentMethodHandler(
         if (ParsePaymentMethodConfig(store.GetPaymentMethodConfigs()[PaymentMethodId]) is not PixPaymentMethodConfig pixCfg)
             throw new PaymentMethodUnavailableException("DePix payment method not configured");
 
-        var apiKey = secretProtector.Unprotect(pixCfg.EncryptedApiKey ?? "");
+        var effectiveConfig = await depixService.GetEffectiveConfigAsync(pixCfg);
+        if (effectiveConfig.Source == DepixService.DepixConfigSource.None)
+            throw new PaymentMethodUnavailableException("DePix API key/webhook secret not configured (store or server)");
+        
+        var apiKey = secretProtector.Unprotect(effectiveConfig.EncryptedApiKey);
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new PaymentMethodUnavailableException("DePix API key not configured");
 
         var amountInBrl = context.Prompt.Calculate().Due;
+        if (effectiveConfig.PassFeeToCustomer) amountInBrl += 1.00m;
         var amountInCents = (int)Math.Round(amountInBrl * 100m, MidpointRounding.AwayFromZero);
 
         using var client = depixService.CreateDepixClient(apiKey);
 
         var address = await depixService.GenerateFreshDePixAddress(store.Id);
 
-        var deposit = await depixService.RequestDepositAsync(client, amountInCents, address, pixCfg.UseWhitelist, CancellationToken.None);
+        var deposit = await depixService.RequestDepositAsync(client, amountInCents, address, effectiveConfig.UseWhitelist, CancellationToken.None);
 
         depixService.ApplyPromptDetails(context, deposit, address);
     }
