@@ -1,10 +1,12 @@
-﻿using BTCPayServer.Abstractions.Contracts;
+using BTCPayServer.Abstractions.Contracts;
 using BTCPayServer.Abstractions.Models;
 using BTCPayServer.Hosting;
 using BTCPayServer.Payments;
 using BTCPayServer.Plugins.Depix.PaymentHandlers;
 using BTCPayServer.Plugins.Depix.Services;
+using BTCPayServer.Common;
 using Microsoft.Extensions.DependencyInjection;
+using NBXplorer;
 
 namespace BTCPayServer.Plugins.Depix;
 public class DePixPlugin : BaseBTCPayServerPlugin
@@ -42,6 +44,8 @@ public class DePixPlugin : BaseBTCPayServerPlugin
 
         using var sp = plugins.BuildServiceProvider();
         var depixService = sp.GetRequiredService<DepixService>();
-        depixService.InitDePix(plugins);
+        var nbxProvider = sp.GetRequiredService<NBXplorerNetworkProvider>();
+        var selectedChains = sp.GetRequiredService<SelectedChains>();
+        depixService.InitDePix(plugins, nbxProvider, selectedChains);
     }
 }

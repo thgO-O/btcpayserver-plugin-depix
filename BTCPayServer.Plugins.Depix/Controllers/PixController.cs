@@ -1,4 +1,6 @@
 #nullable enable
+using System;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using BTCPayServer.Abstractions.Constants;
@@ -18,6 +20,9 @@ namespace BTCPayServer.Plugins.Depix.Controllers;
 
 [Route("stores/{storeId}/pix")]
 [Authorize(Policy = Policies.CanModifyStoreSettings, AuthenticationSchemes = AuthenticationSchemes.Cookie)]
+/// <summary>
+/// Controller for Pix settings and transactions
+/// </summary>
 public class PixController(
     StoreRepository storeRepository,
     PaymentMethodHandlerDictionary handlers,
@@ -27,6 +32,11 @@ public class PixController(
 {
     private StoreData StoreData => HttpContext.GetStoreData();
     
+    /// <summary>
+    /// Displays the Pix settings for a store
+    /// </summary>
+    /// <param name="walletId">Optional wallet ID context</param>
+    /// <returns>The settings view</returns>
     [HttpGet("settings")]
     public async Task<IActionResult> PixSettings([FromQuery] string? walletId)
     {
@@ -70,6 +80,8 @@ public class PixController(
             ApiKey = maskedApiKey,
             UseWhitelist = cfg is { UseWhitelist: true },
             PassFeeToCustomer = cfg is { PassFeeToCustomer: true },
+            DepixSplitAddress = cfg?.DepixSplitAddress,
+            SplitFee = cfg?.SplitFee,
             WebhookUrl = webhookUrl,
             WebhookSecretDisplay = secretDisplay,
             OneShotSecretToDisplay = oneShotSecret,
@@ -82,6 +94,12 @@ public class PixController(
         return View(model);
     }
 
+    /// <summary>
+    /// Updates the Pix settings for a store
+    /// </summary>
+    /// <param name="viewModel">The view model with updated settings</param>
+    /// <param name="walletId">Optional wallet ID context</param>
+    /// <returns>Redirects to settings view</returns>
     [HttpPost("settings")]
     public async Task<IActionResult> PixSettings(PixStoreViewModel viewModel, [FromQuery] string? walletId)
     {
@@ -103,6 +121,32 @@ public class PixController(
                 return RedirectToAction(nameof(PixSettings), new { walletId });
             }
             cfg.EncryptedApiKey = protector.Protect(candidate);
+        }
+
+        var splitAddress = viewModel.DepixSplitAddress?.Trim();
+        var splitFeeRaw = viewModel.SplitFee?.Trim();
+        var hasSplitAddress = !string.IsNullOrWhiteSpace(splitAddress);
+        var hasSplitFee = !string.IsNullOrWhiteSpace(splitFeeRaw);
+        if (hasSplitAddress ^ hasSplitFee)
+        {
+            TempData[WellKnownTempData.ErrorMessage] = "Split Fee and DePix Split Address must be provided together.";
+            return RedirectToAction(nameof(PixSettings), new { walletId });
+        }
+
+        if (hasSplitFee)
+        {
+            if (!TryNormalizeSplitFee(splitFeeRaw!, out var normalizedSplitFee))
+            {
+                TempData[WellKnownTempData.ErrorMessage] = "Split Fee must be greater than 0 and less than 100, with up to 2 decimal places.";
+                return RedirectToAction(nameof(PixSettings), new { walletId });
+            }
+            viewModel.SplitFee = normalizedSplitFee;
+            viewModel.DepixSplitAddress = splitAddress;
+        }
+        else
+        {
+            viewModel.SplitFee = null;
+            viewModel.DepixSplitAddress = null;
         }
         
         string? oneShotSecretToDisplay = null;
@@ -130,6 +174,8 @@ public class PixController(
         cfg.IsEnabled = willEnable;
         cfg.UseWhitelist = viewModel.UseWhitelist;
         cfg.PassFeeToCustomer = viewModel.PassFeeToCustomer;
+        cfg.DepixSplitAddress = viewModel.DepixSplitAddress;
+        cfg.SplitFee = viewModel.SplitFee;
         store.SetPaymentMethodConfig(handlers[pmid], cfg);
         blob.SetExcluded(pmid, !willEnable);
         store.SetStoreBlob(blob);
@@ -142,7 +188,31 @@ public class PixController(
         TempData[WellKnownTempData.SuccessMessage] = "Pix configuration applied";
         return RedirectToAction(nameof(PixSettings), new { storeId = StoreData.Id, walletId });
     }
+
+    private static bool TryNormalizeSplitFee(string raw, out string normalized)
+    {
+        normalized = "";
+        var trimmed = raw.Trim();
+        if (trimmed.EndsWith("%", StringComparison.Ordinal))
+            trimmed = trimmed[..^1].Trim();
+        if (!decimal.TryParse(trimmed, NumberStyles.Number, CultureInfo.InvariantCulture, out var value))
+            return false;
+        if (value <= 0m || value >= 100m)
+            return false;
+        var scale = (decimal.GetBits(value)[3] >> 16) & 0xFF;
+        if (scale > 2)
+            return false;
+        normalized = value.ToString("0.##", CultureInfo.InvariantCulture) + "%";
+        return true;
+    }
     
+    /// <summary>
+    /// Displays Pix transactions for a store
+    /// </summary>
+    /// <param name="storeId">The store ID</param>
+    /// <param name="query">Filter parameters</param>
+    /// <param name="ct">Cancellation token</param>
+    /// <returns>The transactions view</returns>
     [HttpGet("transactions")]
     public async Task<IActionResult> PixTransactions([FromRoute] string storeId, [FromQuery] PixTxQueryRequest query, CancellationToken ct)
     {

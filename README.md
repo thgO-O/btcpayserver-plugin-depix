@@ -85,6 +85,17 @@ Use this when:
 3. (Optional) Configure store behavior (only applies when the store has its own API key):
    - **Pass fee to customer**
    - **Whitelist mode**
+4. (Optional) Configure split payments:
+   - **DePix Split Address**: wallet that receives the split portion
+   - **Split Fee**: percentage of the Pix amount sent to the split address
+   - Both fields are required together; leave both empty to disable split
+
+Example use cases for split payments:
+- **Merchant gateway**: you provide Pix via your Eulen API + BTCPay setup and charge a platform fee.
+- **Affiliates**: automatically send a commission to an affiliate wallet per sale.
+- **Coproduction**: split course sales between producer and coproducer wallets.
+- **Marketplace**: route a platform fee to your wallet while the seller receives the rest.
+- **Local partnerships**: split revenue between venue and service partner.
 
 ![Pix Settings](docs/img/pix-settings.png)
 

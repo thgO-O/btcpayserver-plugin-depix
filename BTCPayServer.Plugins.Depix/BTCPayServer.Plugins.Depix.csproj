@@ -8,7 +8,7 @@
   <PropertyGroup>
     <Product>Decentralized Pix Liquid Integration</Product>
     <Description>Enables store owners to accept Pix payments automatically converted to Liquid stablecoins using DePix.</Description>
-    <Version>1.0.4</Version>
+    <Version>1.0.5</Version>
   </PropertyGroup>
 
 

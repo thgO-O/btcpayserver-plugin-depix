@@ -63,6 +63,23 @@
                         <span>Enable Pix</span>
                     </label>
                 </div>
+                <div class="form-group my-4">
+                    <label asp-for="DepixSplitAddress">DePix Split Address (Optional)</label>
+                    <input asp-for="DepixSplitAddress" type="text" class="form-control" />
+                    <span asp-validation-for="DepixSplitAddress" class="text-danger"></span>
+                    <small class="form-text text-muted">
+                        Wallet that receives the split portion defined by Split Fee.
+                    </small>
+                </div>
+
+                <div class="form-group my-4">
+                    <label asp-for="SplitFee">Split Fee (Optional)</label>
+                    <input asp-for="SplitFee" type="number" class="form-control" step="0.01" min="0" max="100" />
+                    <span asp-validation-for="SplitFee" class="text-danger"></span>
+                    <small class="form-text text-muted">
+                        Percentage of the Pix amount sent to the Split Address.
+                    </small>
+                </div>
 
                 @if (Model.IsStoreCfgValid)
                 {
