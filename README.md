@@ -208,6 +208,7 @@ Make sure DePix is configured either in Wallets → Pix → Settings (store) or 
 ## Support & feedback
 
 Open an **issue** on the repository with details of your problem or suggestion. Pull requests are welcome.
+For anything related to the DePix plugin, join [Telegram group](https://t.me/+xFiXWiZPAQ05O).
 
 ## License
 
