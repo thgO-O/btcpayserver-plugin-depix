@@ -14,6 +14,6 @@ public sealed class DepositWebhookBody
     [JsonPropertyName("expiration")] public string? Expiration { get; set; } // ISO string
     [JsonPropertyName("pixKey")] public string? PixKey { get; set; }
     [JsonPropertyName("qrId")] public string QrId { get; set; } = null!;
-    [JsonPropertyName("status")] public string? Status { get; set; } // ex: depix_sent
+    [JsonPropertyName("status")] public string? Status { get; set; } // ex: approved, depix_sent
     [JsonPropertyName("valueInCents")] public int? ValueInCents { get; set; }
 }

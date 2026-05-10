@@ -1,5 +1,6 @@
 @using BTCPayServer.Abstractions.Extensions
 @using BTCPayServer.Plugins.Depix
+@using BTCPayServer.Plugins.Depix.Data.Enums
 @model BTCPayServer.Plugins.Depix.Data.Models.ViewModels.PixTransactionsViewModel
 
 @{
@@ -19,6 +20,7 @@
 
   string Badge(string s) => (s ?? "").ToLowerInvariant() switch
   {
+      "approved" => "bg-success",
       "depix_sent" => "bg-success",
       "under_review" => "bg-warning text-dark",
       "pending" => "bg-secondary",
@@ -105,7 +107,7 @@ else if (!Model.ConfigStatus.PixEnabled)
             <label class="form-label" text-translate="true">Status</label>
             <select name="status" class="form-select">
                 <option value="" text-translate="true">All</option>
-                @foreach (var s in new[] { "depix_sent","under_review","pending","expired","canceled","error","refunded" })
+                @foreach (var s in new[] { "approved","depix_sent","under_review","pending","expired","canceled","error","refunded" })
                 {
                     <option value="@s" selected="@(statusFilter==s)">@s</option>
                 }
@@ -152,7 +154,9 @@ else if (!Model.ConfigStatus.PixEnabled)
         <tbody>
         @foreach (var d in Model.Transactions)
         {
-            var raw = d.DepixStatus?.ToString() ?? d.DepixStatusRaw;
+            var raw = d.DepixStatus is { } parsed
+                ? parsed.ToApiString()
+                : d.DepixStatusRaw;
             <tr>
                 <td class="text-nowrap">
                     <time datetime="@d.Created.UtcDateTime.ToString("o")">
