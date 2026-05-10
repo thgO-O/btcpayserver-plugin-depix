@@ -323,7 +323,8 @@ public class DepixService(
     /// <param name="context">The payment method context</param>
     /// <param name="depositResponse">The deposit response from DePix</param>
     /// <param name="depixAddress">The DePix address</param>
-    public void ApplyPromptDetails(PaymentMethodContext context, DepixDepositResponse depositResponse, string depixAddress)
+    /// <param name="amountInCents">The QR amount in cents</param>
+    public void ApplyPromptDetails(PaymentMethodContext context, DepixDepositResponse depositResponse, string depixAddress, int amountInCents)
     {
         context.Prompt.Destination = depositResponse.QrImageUrl;
 
@@ -336,6 +337,8 @@ public class DepixService(
         details.QrImageUrl = depositResponse.QrImageUrl;
         details.CopyPaste = depositResponse.QrCopyPaste;
         details.DepixAddress = depixAddress;
+        if (amountInCents > 0)
+            details.ValueInCents = amountInCents;
 
         context.Prompt.Details = JToken.FromObject(details, context.Handler.Serializer);
     }

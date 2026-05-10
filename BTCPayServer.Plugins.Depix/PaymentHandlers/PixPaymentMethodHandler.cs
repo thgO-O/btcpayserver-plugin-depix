@@ -69,9 +69,7 @@ public class PixPaymentMethodHandler(
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new PaymentMethodUnavailableException("DePix API key not configured");
 
-        var amountInBrl = context.Prompt.Calculate().Due;
-        if (effectiveConfig.PassFeeToCustomer) amountInBrl += 1.00m;
-        var amountInCents = (int)Math.Round(amountInBrl * 100m, MidpointRounding.AwayFromZero);
+        var amountInCents = (int)Math.Round(context.Prompt.Calculate().Due * 100m, MidpointRounding.AwayFromZero);
 
         using var client = depixService.CreateDepixClient(apiKey);
 
@@ -84,9 +82,9 @@ public class PixPaymentMethodHandler(
             effectiveConfig.UseWhitelist,
             CancellationToken.None);
 
-        depixService.ApplyPromptDetails(context, deposit, address);
+        depixService.ApplyPromptDetails(context, deposit, address, amountInCents);
     }
-    
+
     /// <summary>
     /// JSON serializer for the handler
     /// </summary>
@@ -205,7 +203,6 @@ public class DePixPaymentMethodDetails
     /// Expiration time
     /// </summary>
     public string? Expiration { get; set; }
-    /// <summary>
     /// The Pix key
     /// </summary>
     public string? PixKey { get; set; }
