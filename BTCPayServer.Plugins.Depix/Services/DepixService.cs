@@ -361,8 +361,11 @@ public class DepixService(
             "\"StoreDataId\" = @storeId",
             "(\"Blob2\"->'prompts'->'PIX'->'details'->>'qrId') IS NOT NULL"
         };
-        if (!string.IsNullOrWhiteSpace(query.Status))
-            where.Add("\"Blob2\"->'prompts'->'PIX'->'details'->>'status' = @status");
+        var status = NormalizeStatusFilter(query.Status);
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            where.Add("LOWER(REPLACE(COALESCE(\"Blob2\"->'prompts'->'PIX'->'details'->>'status', ''), '-', '_')) = @status");
+        }
         if (query.From is not null)
             where.Add("\"Created\" >= @fromUtc");
         if (query.To is not null)
@@ -395,7 +398,7 @@ public class DepixService(
         var args = new
         {
             storeId = query.StoreId,
-            status  = query.Status,
+            status,
             search  = query.SearchTerm,
             fromUtc = query.From?.UtcDateTime,
             toUtc   = query.To?.UtcDateTime
@@ -488,70 +491,139 @@ public class DepixService(
             return;
         }
 
-        var details = pixPrompt.Details is null
-            ? new DePixPaymentMethodDetails()
-            : handler.ParsePaymentPromptDetails(pixPrompt.Details) as DePixPaymentMethodDetails ??
-              new DePixPaymentMethodDetails();
-        if (body.Status is not null)       details.Status = body.Status;
-        if (body.ValueInCents is not null) details.ValueInCents = body.ValueInCents;
+        var hasDepixStatus = DepixStatusExtensions.TryParse(body.Status, out var depixStatus);
+        var expectedValueInCents = TryGetExpectedValueInCents(entity, pixPrompt, body.QrId, handler);
+        var effectivePromptStatus = TryGetPromptStatus(pixPrompt, handler);
+        try
+        {
+            effectivePromptStatus = await UpdatePromptDetailsFromWebhookAsync(
+                invoiceId,
+                body,
+                handler,
+                expectedValueInCents,
+                cancellationToken) ?? effectivePromptStatus;
+        }
+        catch (Exception ex) when (hasDepixStatus &&
+                                   ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Depix webhook: could not update PIX prompt details before applying status {Status} for invoice {InvoiceId}", body.Status, invoiceId);
+        }
+
+        if (!hasDepixStatus)
+        {
+            await TryUpdateExistingPaymentAndPublishAsync(entity, pixPrompt, body, expectedValueInCents, handler, cancellationToken);
+            return;
+        }
+
+        if (!depixStatus.IsConfirmedPaymentStatus())
+        {
+            await TryUpdateExistingPaymentAndPublishAsync(entity, pixPrompt, body, expectedValueInCents, handler, cancellationToken);
+            await ApplyStatusAndNotifyAsync(invoiceId, depixStatus);
+            return;
+        }
+
+        if (!depixStatus.ShouldReplace(effectivePromptStatus))
+        {
+            await TryUpdateExistingPaymentAndPublishAsync(entity, pixPrompt, body, expectedValueInCents, handler, cancellationToken);
+            return;
+        }
+
+        await TryRecordPaymentAsync(entity, pixPrompt, body, depixStatus, expectedValueInCents, handler, cancellationToken);
+    }
+
+    private async Task<string?> UpdatePromptDetailsFromWebhookAsync(
+        string invoiceId,
+        DepositWebhookBody body,
+        IPaymentMethodHandler handler,
+        int? expectedValueInCents,
+        CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 5;
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await using var db = dbFactory.CreateContext();
+            try
+            {
+                var invoiceData = await db.Invoices.FindAsync([invoiceId], cancellationToken);
+                if (invoiceData is null)
+                    return null;
+
+                var invoiceEntity = invoiceData.GetBlob();
+                var prompt = invoiceEntity.GetPaymentPrompt(handler.PaymentMethodId);
+                if (prompt is null)
+                    return null;
+
+                var details = prompt.Details is null
+                    ? new DePixPaymentMethodDetails()
+                    : handler.ParsePaymentPromptDetails(prompt.Details) as DePixPaymentMethodDetails ??
+                      new DePixPaymentMethodDetails();
+
+                ApplyWebhookBodyToDetails(details, body, expectedValueInCents);
+
+                prompt.Details = JToken.FromObject(details, handler.Serializer);
+                invoiceEntity.SetPaymentPrompt(handler.PaymentMethodId, prompt);
+                invoiceData.SetBlob(invoiceEntity);
+                await db.SaveChangesAsync(cancellationToken);
+                return details.Status;
+            }
+            catch (DbUpdateConcurrencyException) when (attempt + 1 < maxAttempts)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+        }
+
+        return null;
+    }
+
+    private static void ApplyWebhookBodyToDetails(
+        DePixPaymentMethodDetails details,
+        DepositWebhookBody body,
+        int? expectedValueInCents)
+    {
+        if (body.Status is not null)       details.Status = MergeStatus(body.Status, details.Status);
+        if (TryGetWebhookValueInCents(body, expectedValueInCents) is { } valueInCents && details.ValueInCents is null)
+            details.ValueInCents = valueInCents;
         if (body.Expiration is not null)   details.Expiration = body.Expiration;
         if (body.PixKey is not null)       details.PixKey = body.PixKey;
 
-        if (body.PayerName is not null || body.PayerEuid is not null ||
-            body.PayerTaxNumber is not null || body.CustomerMessage is not null)
+        if (body.PayerName is null && body.PayerEuid is null &&
+            body.PayerTaxNumber is null && body.CustomerMessage is null)
         {
-            details.Payer ??= new DePixPaymentMethodDetails.PayerDetails();
-            if (body.PayerName is not null)       details.Payer.Name = body.PayerName;
-            if (body.PayerEuid is not null)       details.Payer.Euid = body.PayerEuid;
-            if (body.PayerTaxNumber is not null)  details.Payer.TaxNumber = body.PayerTaxNumber;
-            if (body.CustomerMessage is not null) details.Payer.Message = body.CustomerMessage;
+            return;
         }
 
-        await invoiceRepository.UpdatePaymentDetails(invoiceId, handler, details);
-
-        if (DepixStatusExtensions.TryParse(body.Status, out var depixStatus))
-        {
-            if (depixStatus != DepixStatus.DepixSent)
-            {
-                await ApplyStatusAndNotifyAsync(invoiceId, depixStatus);
-                return;
-            }
-            
-            await TryRecordPaymentAsync(entity, pixPrompt, body, depixStatus);
-        }
+        details.Payer ??= new DePixPaymentMethodDetails.PayerDetails();
+        if (body.PayerName is not null)       details.Payer.Name = body.PayerName;
+        if (body.PayerEuid is not null)       details.Payer.Euid = body.PayerEuid;
+        if (body.PayerTaxNumber is not null)  details.Payer.TaxNumber = body.PayerTaxNumber;
+        if (body.CustomerMessage is not null) details.Payer.Message = body.CustomerMessage;
     }
 
     private async Task TryRecordPaymentAsync(InvoiceEntity entity, PaymentPrompt pixPrompt, DepositWebhookBody body,
-        DepixStatus depixStatus)
+        DepixStatus depixStatus, int? expectedValueInCents, IPaymentMethodHandler handler, CancellationToken cancellationToken)
     {
-        if (depixStatus != DepixStatus.DepixSent)
+        if (!depixStatus.IsConfirmedPaymentStatus())
             return;
 
         if (string.IsNullOrWhiteSpace(body.QrId))
         {
-            logger.LogWarning("Depix webhook: depix_sent without payment id for invoice {InvoiceId}", entity.Id);
+            logger.LogWarning("Depix webhook: confirmed status {Status} without payment id for invoice {InvoiceId}", body.Status, entity.Id);
             return;
         }
 
-        var amount = body.ValueInCents is { } cents
-            ? cents / 100m
-            : pixPrompt.Calculate().TotalDue;
+        var expectedAmount = expectedValueInCents is > 0 ? expectedValueInCents.Value / 100m : pixPrompt.Calculate().Due;
+        var amount = TryGetWebhookAmount(body, expectedValueInCents) ?? expectedAmount;
         if (amount <= 0m)
         {
-            logger.LogWarning("Depix webhook: depix_sent with invalid amount {Amount} for invoice {InvoiceId}", amount, entity.Id);
+            logger.LogWarning("Depix webhook: confirmed status {Status} with invalid amount {Amount} for invoice {InvoiceId}", body.Status, amount, entity.Id);
             return;
         }
 
         using var scope = scopeFactory.CreateScope();
         var paymentService = scope.ServiceProvider.GetRequiredService<PaymentService>();
-        var handlers = scope.ServiceProvider.GetRequiredService<PaymentMethodHandlerDictionary>();
-        if (!handlers.TryGetValue(DePixPlugin.PixPmid, out var handler))
-        {
-            logger.LogWarning("Depix webhook: depix_sent but PIX handler missing for invoice {InvoiceId}", entity.Id);
-            return;
-        }
 
-        var paymentId = $"{entity.Id}:{body.QrId}";
+        var paymentId = GetPaymentId(entity.Id, body.QrId);
         var paymentData = new PaymentData
         {
             Id = paymentId,
@@ -560,11 +632,17 @@ public class DepixService(
             Currency = pixPrompt.Currency,
             InvoiceDataId = entity.Id,
             Amount = amount
-        }.Set(entity, handler, BuildPaymentData(body));
+        }.Set(entity, handler, BuildPaymentData(body, valueInCents: TryGetWebhookValueInCents(body, expectedValueInCents)));
 
         var payment = await paymentService.AddPayment(paymentData, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { paymentId });
         if (payment is null)
         {
+            if (await TryUpdateExistingPaymentAsync(paymentId, entity, pixPrompt, body, amount, handler, cancellationToken))
+            {
+                await PublishExistingPaymentUpdatedAsync(entity.Id);
+                return;
+            }
+
             events.Publish(new InvoiceNeedUpdateEvent(entity.Id));
             return;
         }
@@ -574,21 +652,229 @@ public class DepixService(
             events.Publish(new InvoiceEvent(invoice, InvoiceEvent.ReceivedPayment) { Payment = payment });
     }
 
-    private static DePixPaymentData BuildPaymentData(DepositWebhookBody body)
+    private async Task PublishExistingPaymentUpdatedAsync(string invoiceId)
+    {
+        events.Publish(new InvoiceNeedUpdateEvent(invoiceId));
+
+        var invoice = await invoiceRepository.GetInvoice(invoiceId);
+        if (invoice is not null)
+            events.Publish(new InvoiceDataChangedEvent(invoice));
+    }
+
+    private async Task TryUpdateExistingPaymentAndPublishAsync(
+        InvoiceEntity entity,
+        PaymentPrompt pixPrompt,
+        DepositWebhookBody body,
+        int? expectedValueInCents,
+        IPaymentMethodHandler handler,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(body.QrId))
+            return;
+
+        if (await TryUpdateExistingPaymentAsync(
+                GetPaymentId(entity.Id, body.QrId),
+                entity,
+                pixPrompt,
+                body,
+                TryGetWebhookAmount(body, expectedValueInCents),
+                handler,
+                cancellationToken))
+        {
+            await PublishExistingPaymentUpdatedAsync(entity.Id);
+        }
+    }
+
+    private async Task<bool> TryUpdateExistingPaymentAsync(
+        string paymentId,
+        InvoiceEntity entity,
+        PaymentPrompt pixPrompt,
+        DepositWebhookBody body,
+        decimal? amount,
+        IPaymentMethodHandler handler,
+        CancellationToken cancellationToken)
+    {
+        var paymentMethodId = handler.PaymentMethodId.ToString();
+        await using var strategyContext = dbFactory.CreateContext();
+        return await strategyContext.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            await using var db = dbFactory.CreateContext();
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            var existing = await db.Payments
+                .FromSqlInterpolated($"""
+                                      SELECT *
+                                      FROM "Payments"
+                                      WHERE "Id" = {paymentId} AND "PaymentMethodId" = {paymentMethodId}
+                                      FOR UPDATE
+                                      """)
+                .SingleOrDefaultAsync(cancellationToken);
+            if (existing is null)
+                return false;
+
+            if (!TryParsePaymentDetails(existing, handler, out var existingDetails))
+                return false;
+
+            var acceptedAmount = existing.Amount is > 0m ? existing.Amount : amount;
+            if (amount is > 0m && existing.Amount is not > 0m)
+            {
+                existing.Amount = amount;
+            }
+            else if (amount is > 0m && existing.Amount != amount)
+            {
+                logger.LogWarning(
+                    "Depix webhook: ignoring mismatched amount {IncomingAmount} for existing payment {PaymentId} with amount {ExistingAmount}",
+                    amount,
+                    paymentId,
+                    existing.Amount);
+            }
+
+            var acceptedValueInCents = acceptedAmount is > 0m ? (int?)ToValueInCents(acceptedAmount.Value) : null;
+            existing.Currency = pixPrompt.Currency;
+            existing.Status = PaymentStatus.Settled;
+            existing.Set(entity, handler, BuildPaymentData(
+                body,
+                existingDetails,
+                TryGetWebhookValueInCents(body, acceptedValueInCents)));
+
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return true;
+        });
+    }
+
+    private bool TryParsePaymentDetails(
+        PaymentData paymentData,
+        IPaymentMethodHandler handler,
+        out DePixPaymentData? details)
+    {
+        try
+        {
+            details = paymentData.GetBlob().GetDetails<DePixPaymentData>(handler);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Depix webhook: could not parse existing payment details for payment {PaymentId}", paymentData.Id);
+            details = null;
+            return false;
+        }
+    }
+
+    private static DePixPaymentData BuildPaymentData(
+        DepositWebhookBody body,
+        DePixPaymentData? existing = null,
+        int? valueInCents = null)
     {
         return new DePixPaymentData
         {
-            QrId = body.QrId,
-            BankTxId = body.BankTxId,
-            BlockchainTxId = body.BlockchainTxId,
-            Status = body.Status,
-            ValueInCents = body.ValueInCents,
-            PixKey = body.PixKey,
-            PayerName = body.PayerName,
-            PayerEuid = body.PayerEuid,
-            PayerTaxNumber = body.PayerTaxNumber,
-            CustomerMessage = body.CustomerMessage
+            QrId = body.QrId ?? existing?.QrId,
+            BankTxId = body.BankTxId ?? existing?.BankTxId,
+            BlockchainTxId = body.BlockchainTxId ?? existing?.BlockchainTxId,
+            Status = MergeStatus(body.Status, existing?.Status),
+            ValueInCents = existing?.ValueInCents ?? valueInCents,
+            PixKey = body.PixKey ?? existing?.PixKey,
+            PayerName = body.PayerName ?? existing?.PayerName,
+            PayerEuid = body.PayerEuid ?? existing?.PayerEuid,
+            PayerTaxNumber = body.PayerTaxNumber ?? existing?.PayerTaxNumber,
+            CustomerMessage = body.CustomerMessage ?? existing?.CustomerMessage
         };
+    }
+
+    private static string GetPaymentId(string invoiceId, string qrId)
+    {
+        return $"{invoiceId}:{qrId}";
+    }
+
+    private static int? TryGetExpectedValueInCents(
+        InvoiceEntity entity,
+        PaymentPrompt prompt,
+        string? qrId,
+        IPaymentMethodHandler handler)
+    {
+        if (TryGetStoredPromptValueInCents(prompt, handler) is { } storedValueInCents)
+            return storedValueInCents;
+
+        var promptAmount = prompt.Calculate().Due;
+        if (promptAmount > 0m)
+            return ToValueInCents(promptAmount);
+
+        if (string.IsNullOrWhiteSpace(qrId))
+            return null;
+
+        var existingPayment = entity
+            .GetPayments(false)
+            .FirstOrDefault(payment =>
+                payment.PaymentMethodId == handler.PaymentMethodId &&
+                string.Equals(payment.Id, GetPaymentId(entity.Id, qrId), StringComparison.Ordinal));
+
+        return existingPayment?.Value is > 0m ? ToValueInCents(existingPayment.Value) : null;
+    }
+
+    private static int? TryGetStoredPromptValueInCents(PaymentPrompt prompt, IPaymentMethodHandler? handler)
+    {
+        if (prompt.Details is null || handler is null)
+            return null;
+
+        return handler.ParsePaymentPromptDetails(prompt.Details) is DePixPaymentMethodDetails { ValueInCents: > 0 } details
+            ? details.ValueInCents
+            : null;
+    }
+
+    private static string? TryGetPromptStatus(PaymentPrompt prompt, IPaymentMethodHandler handler)
+    {
+        if (prompt.Details is null)
+            return null;
+
+        return handler.ParsePaymentPromptDetails(prompt.Details) is DePixPaymentMethodDetails details
+            ? details.Status
+            : null;
+    }
+
+    private static int? TryGetWebhookValueInCents(DepositWebhookBody body)
+    {
+        return body.ValueInCents is > 0 ? body.ValueInCents.Value : null;
+    }
+
+    private static int? TryGetWebhookValueInCents(DepositWebhookBody body, int? expectedValueInCents)
+    {
+        var valueInCents = TryGetWebhookValueInCents(body);
+        if (valueInCents is null || expectedValueInCents is null)
+            return null;
+        if (valueInCents == expectedValueInCents)
+            return valueInCents;
+
+        return null;
+    }
+
+    private static decimal? TryGetWebhookAmount(DepositWebhookBody body, int? expectedValueInCents)
+    {
+        return TryGetWebhookValueInCents(body, expectedValueInCents) is { } valueInCents ? valueInCents / 100m : null;
+    }
+
+    private static int ToValueInCents(decimal amount)
+    {
+        return (int)Math.Round(amount * 100m, MidpointRounding.AwayFromZero);
+    }
+
+    private static string? MergeStatus(string? incomingStatus, string? existingStatus)
+    {
+        if (string.IsNullOrWhiteSpace(incomingStatus))
+            return existingStatus;
+
+        if (DepixStatusExtensions.TryParse(incomingStatus, out var incoming))
+            return incoming.ShouldReplace(existingStatus) ? incoming.ToApiString() : existingStatus;
+
+        return DepixStatusExtensions.TryParse(existingStatus, out _) ? existingStatus : incomingStatus.Trim();
+    }
+
+    private static string? NormalizeStatusFilter(string? status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+            return null;
+
+        return DepixStatusExtensions.TryParse(status, out var parsed)
+            ? parsed.ToApiString()
+            : status.Trim().ToLowerInvariant().Replace("-", "_");
     }
 
     private async Task ApplyStatusAndNotifyAsync(string invoiceId, DepixStatus depix)
