@@ -231,9 +231,12 @@ public sealed class DepixWebhookServiceTests : IAsyncLifetime
 
         _server.PayTester.GetService<EventAggregator>().Publish(new InvoiceEvent(invoice, InvoiceEvent.Created));
 
-        var storedInvoice = await invoiceRepository.GetInvoice(invoice.Id);
-        var prompt = Assert.Single(storedInvoice.GetPaymentPrompts());
-        Assert.Equal(PixPmid, prompt.PaymentMethodId);
+        await TestUtils.EventuallyAsync(async () =>
+        {
+            var storedInvoice = await invoiceRepository.GetInvoice(invoice.Id);
+            var prompt = Assert.Single(storedInvoice.GetPaymentPrompts());
+            Assert.Equal(PixPmid, prompt.PaymentMethodId);
+        });
     }
 
     [Fact(Timeout = TestUtils.TestTimeout)]

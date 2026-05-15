@@ -1165,7 +1165,7 @@ public sealed class P2PInvoicePaymentMethodRestrictor(
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        subscription = eventAggregator.Subscribe<InvoiceEvent>(HandleInvoiceEvent);
+        subscription = eventAggregator.SubscribeAsync<InvoiceEvent>(HandleInvoiceEvent);
         return Task.CompletedTask;
     }
 
@@ -1190,41 +1190,50 @@ public sealed class P2PInvoicePaymentMethodRestrictor(
         return true;
     }
 
-    private void HandleInvoiceEvent(InvoiceEvent invoiceEvent)
+    private async Task HandleInvoiceEvent(InvoiceEvent invoiceEvent)
     {
         if (invoiceEvent.Name != InvoiceEvent.Created)
             return;
 
-        RestrictInvoiceToPixIfP2PAsync(invoiceEvent.Invoice).GetAwaiter().GetResult();
+        await RestrictInvoiceToPixIfP2PAsync(invoiceEvent.Invoice);
     }
 
     private async Task RestrictInvoiceToPixIfP2PAsync(InvoiceEntity invoice)
     {
-        await using var dbContext = dbContextFactory.CreateContext();
-        var invoiceData = await dbContext.Invoices
-            .AsNoTracking()
-            .FirstOrDefaultAsync(data => data.Id == invoice.Id);
-        if (invoiceData is null)
-            return;
+        await using var strategyContext = dbContextFactory.CreateContext();
+        await strategyContext.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            await using var dbContext = dbContextFactory.CreateContext();
+            await using var transaction = await dbContext.Database.BeginTransactionAsync();
+            var invoiceData = await dbContext.Invoices
+                .FromSqlInterpolated($"""
+                                      SELECT *, xmin
+                                      FROM "Invoices"
+                                      WHERE "Id" = {invoice.Id}
+                                      FOR UPDATE
+                                      """)
+                .SingleOrDefaultAsync();
+            if (invoiceData is null)
+                return;
 
-        var storedInvoice = invoiceData.GetBlob();
-        if (!TryRestrictInvoiceToPixIfP2P(storedInvoice))
-            return;
+            var storedInvoice = invoiceData.GetBlob();
+            if (!TryRestrictInvoiceToPixIfP2P(storedInvoice))
+                return;
 
-        invoiceData.SetBlob(storedInvoice);
+            invoiceData.SetBlob(storedInvoice);
 
-        await using var transaction = await dbContext.Database.BeginTransactionAsync();
-        await dbContext.Database.ExecuteSqlInterpolatedAsync($"""
-            UPDATE "Invoices"
-            SET "Blob2" = CAST({invoiceData.Blob2} AS jsonb)
-            WHERE "Id" = {invoice.Id}
-            """);
-        await dbContext.Database.ExecuteSqlInterpolatedAsync($"""
-            DELETE FROM "AddressInvoices"
-            WHERE "InvoiceDataId" = {invoice.Id}
-              AND "PaymentMethodId" <> {DePixPlugin.PixPmid.ToString()}
-            """);
-        await transaction.CommitAsync();
+            await dbContext.Database.ExecuteSqlInterpolatedAsync($"""
+                UPDATE "Invoices"
+                SET "Blob2" = CAST({invoiceData.Blob2} AS jsonb)
+                WHERE "Id" = {invoice.Id}
+                """);
+            await dbContext.Database.ExecuteSqlInterpolatedAsync($"""
+                DELETE FROM "AddressInvoices"
+                WHERE "InvoiceDataId" = {invoice.Id}
+                  AND "PaymentMethodId" <> {DePixPlugin.PixPmid.ToString()}
+                """);
+            await transaction.CommitAsync();
+        });
     }
 
     private static bool IsP2PPixPrompt(PaymentPrompt pixPrompt)
