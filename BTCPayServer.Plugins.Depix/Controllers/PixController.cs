@@ -1,15 +1,20 @@
 #nullable enable
 using System;
-using System.Globalization;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BTCPayServer.Abstractions.Constants;
+using BTCPayServer.Abstractions.Form;
 using BTCPayServer.Client;
+using BTCPayServer.Client.Models;
 using BTCPayServer.Data;
+using BTCPayServer.Forms;
 using BTCPayServer.Plugins.Depix.Data.Models;
 using BTCPayServer.Plugins.Depix.Data.Models.ViewModels;
 using BTCPayServer.Plugins.Depix.PaymentHandlers;
 using BTCPayServer.Plugins.Depix.Services;
+using BTCPayServer.Plugins.PointOfSale;
+using BTCPayServer.Services.Apps;
 using BTCPayServer.Services.Invoices;
 using BTCPayServer.Services.Stores;
 using Microsoft.AspNetCore.Authorization;
@@ -27,9 +32,14 @@ public class PixController(
     StoreRepository storeRepository,
     PaymentMethodHandlerDictionary handlers,
     ISecretProtector protector,
-    DepixService depixService)
+    DepixService depixService,
+    FormDataService formDataService,
+    AppService appService)
     : Controller
 {
+    private const string P2PDepixAddressFieldName = "depixAddress";
+    private const string P2PDefaultFormName = "DePix P2P checkout";
+    private const string P2PDefaultPosName = "DePix P2P";
     private StoreData StoreData => HttpContext.GetStoreData();
     
     /// <summary>
@@ -80,6 +90,8 @@ public class PixController(
             ApiKey = maskedApiKey,
             UseWhitelist = cfg is { UseWhitelist: true },
             PassFeeToCustomer = cfg is { PassFeeToCustomer: true },
+            P2PMode = cfg is { P2PMode: true },
+            P2PCommissionPercent = cfg?.P2PCommissionPercent,
             DepixSplitAddress = cfg?.DepixSplitAddress,
             SplitFee = cfg?.SplitFee,
             WebhookUrl = webhookUrl,
@@ -125,21 +137,24 @@ public class PixController(
 
         var splitAddress = viewModel.DepixSplitAddress?.Trim();
         var splitFeeRaw = viewModel.SplitFee?.Trim();
+        var p2PCommissionRaw = viewModel.P2PCommissionPercent?.Trim();
         var hasSplitAddress = !string.IsNullOrWhiteSpace(splitAddress);
         var hasSplitFee = !string.IsNullOrWhiteSpace(splitFeeRaw);
+        var hasP2PCommission = !string.IsNullOrWhiteSpace(p2PCommissionRaw);
+
         if (hasSplitAddress ^ hasSplitFee)
         {
             TempData[WellKnownTempData.ErrorMessage] = "Split Fee and DePix Split Address must be provided together.";
             return RedirectToAction(nameof(PixSettings), new { walletId });
         }
-
-        if (hasSplitFee)
+        else if (hasSplitFee)
         {
-            if (!TryNormalizeSplitFee(splitFeeRaw!, out var normalizedSplitFee))
+            if (!DepixService.TryNormalizeSplitFee(splitFeeRaw!, out var normalizedSplitFee))
             {
                 TempData[WellKnownTempData.ErrorMessage] = "Split Fee must be greater than 0 and less than 100, with up to 2 decimal places.";
                 return RedirectToAction(nameof(PixSettings), new { walletId });
             }
+
             viewModel.SplitFee = normalizedSplitFee;
             viewModel.DepixSplitAddress = splitAddress;
         }
@@ -147,6 +162,26 @@ public class PixController(
         {
             viewModel.SplitFee = null;
             viewModel.DepixSplitAddress = null;
+        }
+
+        if (hasP2PCommission)
+        {
+            if (!DepixService.TryNormalizeSplitFee(p2PCommissionRaw!, out var normalizedP2PCommission))
+            {
+                TempData[WellKnownTempData.ErrorMessage] = "P2P commission must be greater than 0 and less than 100, with up to 2 decimal places.";
+                return RedirectToAction(nameof(PixSettings), new { walletId });
+            }
+
+            viewModel.P2PCommissionPercent = normalizedP2PCommission;
+        }
+        else if (viewModel.P2PMode)
+        {
+            TempData[WellKnownTempData.ErrorMessage] = "P2P commission is required in P2P mode.";
+            return RedirectToAction(nameof(PixSettings), new { walletId });
+        }
+        else
+        {
+            viewModel.P2PCommissionPercent = null;
         }
         
         string? oneShotSecretToDisplay = null;
@@ -174,6 +209,8 @@ public class PixController(
         cfg.IsEnabled = willEnable;
         cfg.UseWhitelist = viewModel.UseWhitelist;
         cfg.PassFeeToCustomer = viewModel.PassFeeToCustomer;
+        cfg.P2PMode = viewModel.P2PMode;
+        cfg.P2PCommissionPercent = viewModel.P2PCommissionPercent;
         cfg.DepixSplitAddress = viewModel.DepixSplitAddress;
         cfg.SplitFee = viewModel.SplitFee;
         store.SetPaymentMethodConfig(handlers[pmid], cfg);
@@ -182,30 +219,141 @@ public class PixController(
 
         await storeRepository.UpdateStore(store);
 
+        var p2PPosSetup = viewModel.P2PMode
+            ? await EnsureP2PPointOfSaleAsync(store.Id)
+            : null;
+
         if (!string.IsNullOrEmpty(oneShotSecretToDisplay))
             TempData["OneShotSecret"] = oneShotSecretToDisplay;
 
-        TempData[WellKnownTempData.SuccessMessage] = "Pix configuration applied";
+        TempData[WellKnownTempData.SuccessMessage] = p2PPosSetup is { PosAppCreated: true }
+            ? "Pix configuration applied. DePix P2P POS app was created."
+            : p2PPosSetup is { PosAppUpdated: true }
+                ? "Pix configuration applied. DePix P2P POS app was updated."
+            : viewModel.P2PMode
+                ? "Pix configuration applied. DePix P2P POS app is ready."
+                : "Pix configuration applied";
         return RedirectToAction(nameof(PixSettings), new { storeId = StoreData.Id, walletId });
     }
 
-    private static bool TryNormalizeSplitFee(string raw, out string normalized)
+    private async Task<P2PPosSetupResult> EnsureP2PPointOfSaleAsync(string storeId)
     {
-        normalized = "";
-        var trimmed = raw.Trim();
-        if (trimmed.EndsWith("%", StringComparison.Ordinal))
-            trimmed = trimmed[..^1].Trim();
-        if (!decimal.TryParse(trimmed, NumberStyles.Number, CultureInfo.InvariantCulture, out var value))
-            return false;
-        if (value <= 0m || value >= 100m)
-            return false;
-        var scale = (decimal.GetBits(value)[3] >> 16) & 0xFF;
-        if (scale > 2)
-            return false;
-        normalized = value.ToString("0.##", CultureInfo.InvariantCulture) + "%";
-        return true;
+        var defaultFormId = await EnsureDefaultP2PFormAsync(storeId);
+        var posApps = (await appService.GetApps(PointOfSaleAppType.AppType))
+            .Where(app => app.StoreDataId == storeId && !app.Archived)
+            .ToList();
+
+        if (posApps.Any(app => string.Equals(app.GetSettings<PointOfSaleSettings>().FormId, defaultFormId, StringComparison.Ordinal)))
+            return new P2PPosSetupResult(defaultFormId, false, false);
+
+        var existingP2PPos = posApps.FirstOrDefault(app => string.Equals(app.Name, P2PDefaultPosName, StringComparison.Ordinal));
+        if (existingP2PPos is not null)
+        {
+            var settings = existingP2PPos.GetSettings<PointOfSaleSettings>();
+            settings.FormId = defaultFormId;
+            existingP2PPos.SetSettings(settings);
+            await appService.UpdateOrCreateApp(existingP2PPos);
+            return new P2PPosSetupResult(defaultFormId, false, true);
+        }
+
+        var p2PPos = new AppData
+        {
+            StoreDataId = storeId,
+            Name = P2PDefaultPosName,
+            AppType = PointOfSaleAppType.AppType
+        };
+        p2PPos.SetSettings(CreateP2PPointOfSaleSettings(defaultFormId));
+        await appService.UpdateOrCreateApp(p2PPos);
+        return new P2PPosSetupResult(defaultFormId, true, false);
     }
-    
+
+    private static PointOfSaleSettings CreateP2PPointOfSaleSettings(string formId)
+    {
+        return new PointOfSaleSettings
+        {
+            Title = P2PDefaultPosName,
+            Currency = "BRL",
+            Template = AppService.SerializeTemplate(Array.Empty<AppItem>()),
+            DefaultView = BTCPayServer.Plugins.PointOfSale.PosViewType.Light,
+            ShowItems = false,
+            ShowCustomAmount = true,
+            ShowDiscount = false,
+            ShowSearch = false,
+            ShowCategories = false,
+            EnableTips = false,
+            FormId = formId
+        };
+    }
+
+    private async Task<string> EnsureDefaultP2PFormAsync(string storeId)
+    {
+        var forms = await formDataService.GetForms(storeId);
+        var existing = forms.FirstOrDefault(form => string.Equals(form.Name, P2PDefaultFormName, StringComparison.Ordinal));
+        if (existing is not null)
+        {
+            if (!FormDataHasP2PAddressField(existing))
+            {
+                existing.Config = CreateP2PAddressForm().ToString();
+                await formDataService.AddOrUpdateForm(existing);
+            }
+            return existing.Id;
+        }
+
+        var formData = new FormData
+        {
+            StoreId = storeId,
+            Name = P2PDefaultFormName,
+            Config = CreateP2PAddressForm().ToString()
+        };
+        await formDataService.AddOrUpdateForm(formData);
+        return formData.Id;
+    }
+
+    private static bool FormDataHasP2PAddressField(FormData? formData)
+    {
+        return TryParseForm(formData, out var form) &&
+               form.GetFieldByFullName(P2PDepixAddressFieldName) is { Required: true };
+    }
+
+    private static bool TryParseForm(FormData? formData, out Form form)
+    {
+        form = null!;
+        if (formData is null || string.IsNullOrWhiteSpace(formData.Config))
+            return false;
+
+        try
+        {
+            form = Form.Parse(formData.Config);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static Form CreateP2PAddressForm()
+    {
+        var form = new Form();
+        EnsureP2PAddressField(form);
+        return form;
+    }
+
+    private static void EnsureP2PAddressField(Form form)
+    {
+        if (form.GetFieldByFullName(P2PDepixAddressFieldName) is not null)
+            return;
+
+        form.Fields.Add(Field.Create(
+            "DePix address",
+            P2PDepixAddressFieldName,
+            null,
+            true,
+            "Buyer Liquid/DePix address that receives the purchased DePix."));
+    }
+
+    private sealed record P2PPosSetupResult(string FormId, bool PosAppCreated, bool PosAppUpdated);
+
     /// <summary>
     /// Displays Pix transactions for a store
     /// </summary>
