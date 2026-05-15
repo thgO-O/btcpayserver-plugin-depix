@@ -7,6 +7,7 @@ using BTCPayServer.Data;
 using BTCPayServer.Payments;
 using BTCPayServer.Payments.Bitcoin;
 using BTCPayServer.Plugins.Altcoins;
+using BTCPayServer.Plugins.Depix.Errors;
 using BTCPayServer.Plugins.Depix.Services;
 using Microsoft.AspNetCore.Http;
 using Newtonsoft.Json;
@@ -81,21 +82,30 @@ public class PixPaymentMethodHandler(
 
         string? p2PDestinationAddress = null;
         var p2PMode = pixCfg.P2PMode && TryGetP2PDestinationAddress(context, out p2PDestinationAddress);
-        var address = p2PMode
-            ? p2PDestinationAddress!
-            : await depixService.GenerateFreshDePixAddress(store.Id);
+        string address;
 
         string? depixSplitAddress = null;
         string? p2PCommissionPercent = null;
-        if (p2PMode)
+        try
         {
-            if (string.IsNullOrWhiteSpace(pixCfg.P2PCommissionPercent) ||
-                !DepixService.TryNormalizeSplitFee(pixCfg.P2PCommissionPercent, out p2PCommissionPercent))
-            {
-                throw new PaymentMethodUnavailableException("P2P mode requires a seller commission percentage");
-            }
+            address = p2PMode
+                ? p2PDestinationAddress!
+                : await depixService.GenerateFreshDePixAddress(store.Id);
 
-            depixSplitAddress = await depixService.GenerateFreshDePixAddress(store.Id);
+            if (p2PMode)
+            {
+                if (string.IsNullOrWhiteSpace(pixCfg.P2PCommissionPercent) ||
+                    !DepixService.TryNormalizeSplitFee(pixCfg.P2PCommissionPercent, out p2PCommissionPercent))
+                {
+                    throw new PaymentMethodUnavailableException("P2P mode requires a seller commission percentage");
+                }
+
+                depixSplitAddress = await depixService.GenerateFreshDePixAddress(store.Id);
+            }
+        }
+        catch (Exception ex) when (ex is PixPluginException or PixPaymentException)
+        {
+            throw new PaymentMethodUnavailableException(ex.Message);
         }
 
         var deposit = await depixService.RequestDepositAsync(

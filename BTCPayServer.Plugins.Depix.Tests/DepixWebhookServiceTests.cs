@@ -263,6 +263,61 @@ public sealed class DepixWebhookServiceTests : IAsyncLifetime
         Assert.Equal(1234, promptDetails.ValueInCents);
     }
 
+    [Fact(Timeout = TestUtils.TestTimeout)]
+    public async Task ConfigurePromptReturnsUnavailableWhenP2PCommissionAddressCannotBeGenerated()
+    {
+        var storeId = await CreateStoreAsync();
+        var storeRepository = _server.PayTester.GetService<StoreRepository>();
+        var handlers = _server.PayTester.GetService<PaymentMethodHandlerDictionary>();
+        var handler = handlers[PixPmid];
+        var protector = _server.PayTester.GetService<ISecretProtector>();
+        var store = await storeRepository.FindStore(storeId) ?? throw new InvalidOperationException("Store not found.");
+
+        store.SetPaymentMethodConfig(handler, new PixPaymentMethodConfig
+        {
+            EncryptedApiKey = protector.Protect("fixture-api-key"),
+            WebhookSecretHashHex = BTCPayServer.Plugins.Depix.Services.Utils.ComputeSecretHash(
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"),
+            IsEnabled = true,
+            P2PMode = true,
+            P2PCommissionPercent = "5%"
+        });
+        var storeBlob = store.GetStoreBlob();
+        storeBlob.SetExcluded(PixPmid, false);
+        store.SetStoreBlob(storeBlob);
+        await storeRepository.UpdateStore(store);
+
+        var invoice = _server.PayTester.InvoiceRepository.CreateNewInvoice(storeId);
+        invoice.Currency = "BRL";
+        invoice.Price = 12.34m;
+        invoice.AddRate(new CurrencyPair("BRL", "BRL"), 1m);
+#pragma warning disable CS0618
+        invoice.Payments = [];
+#pragma warning restore CS0618
+        invoice.UpdateTotals();
+        invoice.Metadata = new InvoiceMetadata
+        {
+            AdditionalData = new Dictionary<string, JToken>
+            {
+                ["depixAddress"] = "buyer-depix-address"
+            }
+        };
+        var context = new PaymentMethodContext(
+            store,
+            store.GetStoreBlob(),
+            new JObject(),
+            handler,
+            invoice,
+            new InvoiceLogs());
+        context.Prompt.ParentEntity = invoice;
+        context.Prompt.PaymentMethodId = PixPmid;
+        context.Prompt.Currency = "BRL";
+        context.Prompt.Divisibility = 2;
+
+        var ex = await Assert.ThrowsAsync<PaymentMethodUnavailableException>(() => handler.ConfigurePrompt(context));
+        Assert.Contains("DePix", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private async Task<string> CreateStoreAsync()
     {
         var account = _server.NewAccount();
