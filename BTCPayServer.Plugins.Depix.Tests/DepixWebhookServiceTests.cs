@@ -185,6 +185,58 @@ public sealed class DepixWebhookServiceTests : IAsyncLifetime
     }
 
     [Fact(Timeout = TestUtils.TestTimeout)]
+    public async Task CreatedP2PInvoiceIsRestrictedToPixPaymentPrompt()
+    {
+        var storeId = await CreateStoreAsync();
+        var handlers = _server.PayTester.GetService<PaymentMethodHandlerDictionary>();
+        var pixHandler = handlers[PixPmid];
+        var invoiceRepository = _server.PayTester.InvoiceRepository;
+        var storeRepository = _server.PayTester.GetService<StoreRepository>();
+        var store = await storeRepository.FindStore(storeId) ?? throw new InvalidOperationException("Store not found.");
+        var invoice = invoiceRepository.CreateNewInvoice(storeId);
+        invoice.Currency = "BRL";
+        invoice.Price = 12.34m;
+        invoice.AddRate(new CurrencyPair("BRL", "BRL"), 1m);
+        invoice.SetPaymentPrompts(new PaymentPromptDictionary([
+            new PaymentPrompt
+            {
+                PaymentMethodId = PixPmid,
+                Currency = "BRL",
+                Divisibility = 2,
+                Destination = "https://example.invalid/pix.png",
+                Details = JToken.FromObject(new DePixPaymentMethodDetails
+                {
+                    QrId = "qr-p2p-restricted",
+                    P2PMode = true,
+                    ValueInCents = 1234
+                }, pixHandler.Serializer)
+            },
+            new PaymentPrompt
+            {
+                PaymentMethodId = PaymentTypes.CHAIN.GetPaymentMethodId("BTC"),
+                Currency = "BRL",
+                Divisibility = 2,
+                Destination = "bitcoin-address",
+                Details = new JObject()
+            }
+        ]));
+
+        await invoiceRepository.CreateInvoiceAsync(new InvoiceCreationContext(
+            store,
+            store.GetStoreBlob(),
+            invoice,
+            new InvoiceLogs(),
+            handlers,
+            invoicePaymentMethodFilter: null));
+
+        _server.PayTester.GetService<EventAggregator>().Publish(new InvoiceEvent(invoice, InvoiceEvent.Created));
+
+        var storedInvoice = await invoiceRepository.GetInvoice(invoice.Id);
+        var prompt = Assert.Single(storedInvoice.GetPaymentPrompts());
+        Assert.Equal(PixPmid, prompt.PaymentMethodId);
+    }
+
+    [Fact(Timeout = TestUtils.TestTimeout)]
     public async Task FirstConfirmedWebhookWithMismatchedAmountUsesPromptAmount()
     {
         var storeId = await CreateStoreAsync();

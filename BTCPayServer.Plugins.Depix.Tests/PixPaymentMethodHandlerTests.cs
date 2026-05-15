@@ -1,11 +1,20 @@
+using System;
+using System.Collections.Generic;
+using System.Net;
+using System.Net.Http;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 using BTCPayServer.Client.Models;
 using BTCPayServer.Data;
 using BTCPayServer.Logging;
 using BTCPayServer.Payments;
 using BTCPayServer.Plugins.Depix.Data.Models;
+using BTCPayServer.Plugins.Depix.Errors;
 using BTCPayServer.Plugins.Depix.PaymentHandlers;
 using BTCPayServer.Plugins.Depix.Services;
+using BTCPayServer.Rating;
 using BTCPayServer.Services.Invoices;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -16,6 +25,28 @@ namespace BTCPayServer.Plugins.Depix.Tests;
 public class PixPaymentMethodHandlerTests
 {
     private static readonly PaymentMethodId PixPmid = new("PIX");
+
+    [Theory]
+    [InlineData("0,5", "0.5%")]
+    [InlineData("0.5", "0.5%")]
+    [InlineData("5%", "5%")]
+    [InlineData("5,25%", "5.25%")]
+    public void TryNormalizeSplitFeeAcceptsDecimalCommaWithoutThousands(string raw, string expected)
+    {
+        Assert.True(DepixService.TryNormalizeSplitFee(raw, out var normalized));
+        Assert.Equal(expected, normalized);
+    }
+
+    [Theory]
+    [InlineData("1,000")]
+    [InlineData("1.000")]
+    [InlineData("1,000.00")]
+    [InlineData("1.000,00")]
+    [InlineData("5 percent")]
+    public void TryNormalizeSplitFeeRejectsThousandsAndFreeText(string raw)
+    {
+        Assert.False(DepixService.TryNormalizeSplitFee(raw, out _));
+    }
 
     [Fact]
     public void ApplyPromptDetailsPersistsQrAmountValueInCents()
@@ -48,6 +79,303 @@ public class PixPaymentMethodHandlerTests
         Assert.Equal(1234, details.ValueInCents);
     }
 
+    [Fact]
+    public void ApplyPromptDetailsPersistsP2PCommissionDetails()
+    {
+        var handler = new TestPixHandler();
+        var invoice = new InvoiceEntity
+        {
+            Id = "invoice-prompt-p2p-details",
+            Currency = "BRL",
+            Price = 12.34m,
+            Status = InvoiceStatus.New
+        };
+        var context = new PaymentMethodContext(
+            new BTCPayServer.Data.StoreData { Id = "store-prompt-p2p-details" },
+            new StoreBlob(),
+            new JObject(),
+            handler,
+            invoice,
+            new InvoiceLogs());
+        var service = new DepixService(null!, null!, null!, null!, null!, null!, null!, null!, null!);
+
+        service.ApplyPromptDetails(
+            context,
+            new DepixDepositResponse("qr-p2p-details", "https://example.invalid/qr.png", "copy-paste"),
+            "buyer-depix-address",
+            1234,
+            p2PMode: true,
+            depixSplitAddress: "fresh-store-commission-address",
+            p2PCommissionPercent: "5%");
+
+        var details = Assert.IsType<DePixPaymentMethodDetails>(handler.ParsePaymentPromptDetails(context.Prompt.Details));
+        Assert.True(details.P2PMode);
+        Assert.Equal("buyer-depix-address", details.DepixAddress);
+        Assert.Equal("fresh-store-commission-address", details.DepixSplitAddress);
+        Assert.Equal("5%", details.P2PCommissionPercent);
+        Assert.Null(details.SplitFee);
+    }
+
+    [Fact]
+    public void ApplyPromptDetailsClearsP2PCommissionDetailsForNormalPrompt()
+    {
+        var handler = new TestPixHandler();
+        var invoice = new InvoiceEntity
+        {
+            Id = "invoice-prompt-normal-clears-p2p-details",
+            Currency = "BRL",
+            Price = 12.34m,
+            Status = InvoiceStatus.New
+        };
+        var context = new PaymentMethodContext(
+            new BTCPayServer.Data.StoreData { Id = "store-prompt-normal-clears-p2p-details" },
+            new StoreBlob(),
+            new JObject(),
+            handler,
+            invoice,
+            new InvoiceLogs());
+        var service = new DepixService(null!, null!, null!, null!, null!, null!, null!, null!, null!);
+
+        service.ApplyPromptDetails(
+            context,
+            new DepixDepositResponse("qr-p2p-details", "https://example.invalid/qr-p2p.png", "copy-paste-p2p"),
+            "buyer-depix-address",
+            1234,
+            p2PMode: true,
+            depixSplitAddress: "fresh-store-commission-address",
+            p2PCommissionPercent: "5%");
+
+        service.ApplyPromptDetails(
+            context,
+            new DepixDepositResponse("qr-normal-details", "https://example.invalid/qr-normal.png", "copy-paste-normal"),
+            "store-depix-address",
+            1234);
+
+        var details = Assert.IsType<DePixPaymentMethodDetails>(handler.ParsePaymentPromptDetails(context.Prompt.Details));
+        Assert.Null(details.P2PMode);
+        Assert.Null(details.DepixSplitAddress);
+        Assert.Null(details.P2PCommissionPercent);
+        Assert.Null(details.SplitFee);
+        Assert.Equal("store-depix-address", details.DepixAddress);
+        Assert.Equal("qr-normal-details", details.QrId);
+    }
+
+    [Fact]
+    public void RestrictInvoiceToPixIfP2PKeepsOnlyPixPrompt()
+    {
+        var invoice = new InvoiceEntity
+        {
+            Id = "invoice-p2p-restrict-payment-methods",
+            Currency = "BRL",
+            Price = 12.34m,
+            Status = InvoiceStatus.New
+        };
+        invoice.AddRate(new CurrencyPair("BRL", "BRL"), 1m);
+        var pixPrompt = new PaymentPrompt
+        {
+            PaymentMethodId = PixPmid,
+            Currency = "BRL",
+            Divisibility = 2,
+            Destination = "https://example.invalid/pix.png",
+            Details = JToken.FromObject(new DePixPaymentMethodDetails
+            {
+                QrId = "qr-p2p-restrict",
+                P2PMode = true
+            })
+        };
+        var bitcoinPrompt = new PaymentPrompt
+        {
+            PaymentMethodId = PaymentTypes.CHAIN.GetPaymentMethodId("BTC"),
+            Currency = "BRL",
+            Divisibility = 2,
+            Destination = "bitcoin-address",
+            Details = new JObject()
+        };
+        invoice.SetPaymentPrompts(new PaymentPromptDictionary([pixPrompt, bitcoinPrompt]));
+
+        Assert.True(P2PInvoicePaymentMethodRestrictor.TryRestrictInvoiceToPixIfP2P(invoice));
+
+        var prompt = Assert.Single(invoice.GetPaymentPrompts());
+        Assert.Equal(PixPmid, prompt.PaymentMethodId);
+    }
+
+    [Fact]
+    public async Task RequestDepositUsesConfiguredSplitWhenNoOverrideIsProvided()
+    {
+        var capture = new CaptureDepositRequestHandler();
+        using var client = new HttpClient(capture) { BaseAddress = new Uri("https://example.invalid/api/") };
+        var service = new DepixService(null!, null!, null!, null!, null!, null!, null!, null!, null!);
+
+        await service.RequestDepositAsync(
+            client,
+            10000,
+            "merchant-depix-address",
+            new PixPaymentMethodConfig
+            {
+                DepixSplitAddress = "configured-split-address",
+                SplitFee = "3%"
+            },
+            useWhitelist: true,
+            CancellationToken.None);
+
+        var payload = JObject.Parse(capture.Body!);
+        Assert.Equal(10000, payload.Value<int>("amountInCents"));
+        Assert.Equal("merchant-depix-address", payload.Value<string>("depixAddress"));
+        Assert.Equal("configured-split-address", payload.Value<string>("depixSplitAddress"));
+        Assert.Equal("3%", payload.Value<string>("splitFee"));
+        Assert.True(payload.Value<bool>("whitelist"));
+    }
+
+    [Fact]
+    public async Task RequestDepositDoesNotSendConfiguredSplitFeeWithoutConfiguredSplitAddress()
+    {
+        var capture = new CaptureDepositRequestHandler();
+        using var client = new HttpClient(capture) { BaseAddress = new Uri("https://example.invalid/api/") };
+        var service = new DepixService(null!, null!, null!, null!, null!, null!, null!, null!, null!);
+
+        await service.RequestDepositAsync(
+            client,
+            10000,
+            "merchant-depix-address",
+            new PixPaymentMethodConfig
+            {
+                P2PMode = true,
+                P2PCommissionPercent = "5%"
+            },
+            useWhitelist: false,
+            CancellationToken.None);
+
+        var payload = JObject.Parse(capture.Body!);
+        Assert.Equal("merchant-depix-address", payload.Value<string>("depixAddress"));
+        Assert.False(payload.ContainsKey("depixSplitAddress"));
+        Assert.False(payload.ContainsKey("splitFee"));
+    }
+
+    [Fact]
+    public async Task RequestDepositUsesP2PGeneratedSplitOverride()
+    {
+        var capture = new CaptureDepositRequestHandler();
+        using var client = new HttpClient(capture) { BaseAddress = new Uri("https://example.invalid/api/") };
+        var service = new DepixService(null!, null!, null!, null!, null!, null!, null!, null!, null!);
+
+        await service.RequestDepositAsync(
+            client,
+            10000,
+            "buyer-depix-address",
+            new PixPaymentMethodConfig
+            {
+                DepixSplitAddress = "configured-split-address",
+                SplitFee = "3%"
+            },
+            useWhitelist: false,
+            CancellationToken.None,
+            depixSplitAddressOverride: "fresh-store-commission-address",
+            splitFeeOverride: "5%");
+
+        var payload = JObject.Parse(capture.Body!);
+        Assert.Equal("buyer-depix-address", payload.Value<string>("depixAddress"));
+        Assert.Equal("fresh-store-commission-address", payload.Value<string>("depixSplitAddress"));
+        Assert.Equal("5%", payload.Value<string>("splitFee"));
+        Assert.False(payload.ContainsKey("whitelist"));
+    }
+
+    [Fact]
+    public async Task RequestDepositIncludesDepixApiErrorBody()
+    {
+        var capture = new CaptureDepositRequestHandler(
+            HttpStatusCode.BadRequest,
+            """{"error":"invalid depixSplitAddress"}""");
+        using var client = new HttpClient(capture) { BaseAddress = new Uri("https://example.invalid/api/") };
+        var service = new DepixService(null!, null!, null!, null!, null!, null!, null!, null!, null!);
+
+        var ex = await Assert.ThrowsAsync<PaymentMethodUnavailableException>(() =>
+            service.RequestDepositAsync(
+                client,
+                10000,
+                "buyer-depix-address",
+                new PixPaymentMethodConfig(),
+                useWhitelist: false,
+                CancellationToken.None));
+
+        Assert.Contains("400", ex.Message);
+        Assert.Contains("invalid depixSplitAddress", ex.Message);
+    }
+
+    [Fact]
+    public void P2PDestinationAddressRejectsNonStringMetadataAsUnavailable()
+    {
+        var handler = RuntimeHelpers.GetUninitializedObject(typeof(PixPaymentMethodHandler));
+        var method = typeof(PixPaymentMethodHandler).GetMethod("TryGetP2PDestinationAddress", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var invoice = new InvoiceEntity
+        {
+            Id = "invoice-p2p-non-string-metadata",
+            Currency = "BRL",
+            Price = 12.34m,
+            Status = InvoiceStatus.New,
+            Metadata = new InvoiceMetadata
+            {
+                AdditionalData = new Dictionary<string, JToken>
+                {
+                    ["depixAddress"] = new JValue(123)
+                }
+            }
+        };
+        var context = new PaymentMethodContext(
+            new BTCPayServer.Data.StoreData { Id = "store-p2p-non-string-metadata" },
+            new StoreBlob(),
+            new JObject(),
+            new TestPixHandler(),
+            invoice,
+            new InvoiceLogs());
+
+        object?[] args = [context, null];
+        var ex = Assert.Throws<TargetInvocationException>(() => method.Invoke(handler, args));
+        Assert.IsType<PaymentMethodUnavailableException>(ex.InnerException);
+    }
+
+    [Fact]
+    public void P2PDestinationAddressReadsPendingPosFormResponse()
+    {
+        var method = typeof(PixPaymentMethodHandler).GetMethod(
+            "TryGetP2PDestinationAddress",
+            BindingFlags.Static | BindingFlags.NonPublic)!;
+
+        object?[] args =
+        [
+            null,
+            """{"depixAddress":" buyer-depix-address "}""",
+            null
+        ];
+
+        var found = Assert.IsType<bool>(method.Invoke(null, args));
+
+        Assert.True(found);
+        Assert.Equal("buyer-depix-address", args[2]);
+    }
+
+    [Fact]
+    public void P2PDestinationAddressPrefersInvoiceMetadataOverPendingPosFormResponse()
+    {
+        var method = typeof(PixPaymentMethodHandler).GetMethod(
+            "TryGetP2PDestinationAddress",
+            BindingFlags.Static | BindingFlags.NonPublic)!;
+
+        object?[] args =
+        [
+            new Dictionary<string, JToken>
+            {
+                ["depixAddress"] = "metadata-depix-address"
+            },
+            """{"depixAddress":"form-depix-address"}""",
+            null
+        ];
+
+        var found = Assert.IsType<bool>(method.Invoke(null, args));
+
+        Assert.True(found);
+        Assert.Equal("metadata-depix-address", args[2]);
+    }
+
     private sealed class TestPixHandler : IPaymentMethodHandler
     {
         public PaymentMethodId PaymentMethodId => PixPmid;
@@ -76,6 +404,30 @@ public class PixPaymentMethodHandlerTests
         public object ParsePaymentDetails(JToken details)
         {
             return details.ToObject<DePixPaymentData>(Serializer)!;
+        }
+    }
+
+    private sealed class CaptureDepositRequestHandler(
+        HttpStatusCode statusCode = HttpStatusCode.OK,
+        string responseBody = """
+                              {
+                                "response": {
+                                  "id": "qr-id",
+                                  "qrImageUrl": "https://example.invalid/qr.png",
+                                  "qrCopyPaste": "copy-paste"
+                                }
+                              }
+                              """) : HttpMessageHandler
+    {
+        public string? Body { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
+            return new HttpResponseMessage(statusCode)
+            {
+                Content = new StringContent(responseBody)
+            };
         }
     }
 }
