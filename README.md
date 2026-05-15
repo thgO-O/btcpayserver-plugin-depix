@@ -89,6 +89,11 @@ Use this when:
    - **DePix Split Address**: wallet that receives the split portion
    - **Split Fee**: percentage of the Pix amount sent to the split address
    - Both fields are required together; leave both empty to disable split
+5. (Optional) Enable **P2P mode** to sell DePix through POS/API:
+   - P2P invoices must include metadata field **`depixAddress`** with the buyer's DePix address.
+   - **P2P commission** sets the seller commission percentage.
+   - The commission address is configured by the plugin P2P flow.
+   - A separate **DePix P2P** POS app and checkout form are created automatically.
 
 Example use cases for split payments:
 - **Merchant gateway**: you provide Pix via your Eulen API + BTCPay setup and charge a platform fee.
@@ -137,6 +142,7 @@ Notes:
 
 * **Invoices**: create an invoice as usual; customers will see **Pix** as a payment method.
 * **POS**: generate charges from your Point of Sale; Pix is available.
+* **P2P POS**: enable P2P mode in **Wallets → Pix → Settings** and set the seller commission in **Split Fee**. The plugin creates a separate **DePix P2P** POS app with the required `depixAddress` form field, while existing POS apps can keep using normal Pix.
 
 ![Pix Invoice](docs/img/pix-invoice.png)
 
