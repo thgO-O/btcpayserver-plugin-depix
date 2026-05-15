@@ -175,6 +175,94 @@ public class PixSettingsTests : PlaywrightBaseTest
 
     [Fact(Timeout = TestUtils.TestTimeout)]
     [Trait("Category", "PlaywrightUITest")]
+    public async Task RejectsInvalidP2PCommissionValues()
+    {
+        await InitializeStoreOwnerAsync();
+        await SeedValidStorePixConfigAsync();
+        await GoToPixSettingsAsync();
+
+        foreach (var invalidCommission in new[] { "0", "100", "5.123", "five" })
+        {
+            await Page.GetByText("P2P mode", new() { Exact = true }).ClickAsync();
+            await Page.Locator("#P2PMode").SetCheckedAsync(true);
+            await Page.Locator("#P2PCommissionPercent").FillAsync(invalidCommission);
+            await Page.GetByRole(AriaRole.Button, new() { Name = "Save" }).ClickAsync();
+
+            await Tester.FindAlertMessage(
+                StatusMessageModel.StatusSeverity.Error,
+                "P2P commission must be greater than 0 and less than 100, with up to 2 decimal places.");
+
+            var storeConfig = await GetStorePixConfigAsync();
+            Assert.NotNull(storeConfig);
+            Assert.False(storeConfig!.P2PMode);
+            Assert.Null(storeConfig.P2PCommissionPercent);
+        }
+    }
+
+    [Fact(Timeout = TestUtils.TestTimeout)]
+    [Trait("Category", "PlaywrightUITest")]
+    public async Task RepairsExistingP2PFormAndUpdatesExistingP2PPointOfSale()
+    {
+        await InitializeStoreOwnerAsync();
+        await SeedValidStorePixConfigAsync();
+
+        var formDataService = Server.PayTester.GetService<FormDataService>();
+        var customForm = new Form();
+        customForm.Fields.Add(Field.Create(
+            "Customer note",
+            "customerNote",
+            null,
+            false,
+            "Optional note."));
+        var brokenForm = new FormData
+        {
+            StoreId = Tester.StoreId!,
+            Name = "DePix P2P checkout",
+            Config = customForm.ToString()
+        };
+        await formDataService.AddOrUpdateForm(brokenForm);
+
+        var appService = Server.PayTester.GetService<AppService>();
+        var p2PPos = new AppData
+        {
+            StoreDataId = Tester.StoreId!,
+            Name = "DePix P2P",
+            AppType = PointOfSaleAppType.AppType
+        };
+        p2PPos.SetSettings(new PointOfSaleSettings
+        {
+            Title = "DePix P2P",
+            Currency = "BRL",
+            FormId = "stale-form-id"
+        });
+        await appService.UpdateOrCreateApp(p2PPos);
+
+        await GoToPixSettingsAsync();
+
+        await Page.GetByText("P2P mode", new() { Exact = true }).ClickAsync();
+        await Page.Locator("#P2PMode").SetCheckedAsync(true);
+        await Page.Locator("#P2PCommissionPercent").FillAsync("5");
+        await Page.GetByRole(AriaRole.Button, new() { Name = "Save" }).ClickAsync();
+
+        await Tester.FindAlertMessage(partialText: "DePix P2P POS app was updated");
+
+        var forms = await formDataService.GetForms(Tester.StoreId!);
+        var repairedForm = Assert.Single(forms, form => form.Name == "DePix P2P checkout");
+        var parsedForm = Form.Parse(repairedForm.Config);
+        var depixAddressField = parsedForm.GetFieldByFullName("depixAddress");
+        Assert.NotNull(depixAddressField);
+        Assert.True(depixAddressField!.Required);
+        Assert.NotNull(parsedForm.GetFieldByFullName("customerNote"));
+
+        var apps = (await appService.GetApps(PointOfSaleAppType.AppType))
+            .Where(app => app.StoreDataId == Tester.StoreId && app.Name == "DePix P2P")
+            .ToList();
+        var updatedP2PPos = Assert.Single(apps);
+        Assert.Equal(repairedForm.Id, updatedP2PPos.GetSettings<PointOfSaleSettings>().FormId);
+    }
+
+    [Fact(Timeout = TestUtils.TestTimeout)]
+    [Trait("Category", "PlaywrightUITest")]
     public async Task CanEnablePixUsingServerLevelConfiguration()
     {
         await InitializeStoreOwnerAsync();

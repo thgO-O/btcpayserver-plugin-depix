@@ -293,7 +293,15 @@ public class PixController(
         {
             if (!FormDataHasP2PAddressField(existing))
             {
-                existing.Config = CreateP2PAddressForm().ToString();
+                if (TryParseForm(existing, out var form))
+                {
+                    EnsureP2PAddressField(form);
+                    existing.Config = form.ToString();
+                }
+                else
+                {
+                    existing.Config = CreateP2PAddressForm().ToString();
+                }
                 await formDataService.AddOrUpdateForm(existing);
             }
             return existing.Id;
