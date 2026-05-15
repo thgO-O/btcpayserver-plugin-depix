@@ -144,11 +144,11 @@ public class PixPaymentMethodHandler(
             return false;
 
         if (token.Type != JTokenType.String)
-            throw new PaymentMethodUnavailableException("P2P mode requires invoice metadata depixAddress");
+            throw new PaymentMethodUnavailableException("P2P mode requires a DePix address");
 
         address = token.Value<string>()?.Trim();
         if (string.IsNullOrWhiteSpace(address))
-            throw new PaymentMethodUnavailableException("P2P mode requires invoice metadata depixAddress");
+            throw new PaymentMethodUnavailableException("P2P mode requires a DePix address");
 
         return true;
     }

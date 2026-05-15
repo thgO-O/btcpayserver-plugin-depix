@@ -330,7 +330,8 @@ public class PixPaymentMethodHandlerTests
 
         object?[] args = [context, null];
         var ex = Assert.Throws<TargetInvocationException>(() => method.Invoke(handler, args));
-        Assert.IsType<PaymentMethodUnavailableException>(ex.InnerException);
+        var unavailable = Assert.IsType<PaymentMethodUnavailableException>(ex.InnerException);
+        Assert.Equal("P2P mode requires a DePix address", unavailable.Message);
     }
 
     [Fact]
@@ -374,6 +375,25 @@ public class PixPaymentMethodHandlerTests
 
         Assert.True(found);
         Assert.Equal("metadata-depix-address", args[2]);
+    }
+
+    [Fact]
+    public void P2PDestinationAddressRejectsNonStringFormResponseAsUnavailable()
+    {
+        var method = typeof(PixPaymentMethodHandler).GetMethod(
+            "TryGetP2PDestinationAddress",
+            BindingFlags.Static | BindingFlags.NonPublic)!;
+
+        object?[] args =
+        [
+            null,
+            """{"depixAddress":123}""",
+            null
+        ];
+
+        var ex = Assert.Throws<TargetInvocationException>(() => method.Invoke(null, args));
+        var unavailable = Assert.IsType<PaymentMethodUnavailableException>(ex.InnerException);
+        Assert.Equal("P2P mode requires a DePix address", unavailable.Message);
     }
 
     private sealed class TestPixHandler : IPaymentMethodHandler
