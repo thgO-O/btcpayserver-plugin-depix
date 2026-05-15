@@ -76,7 +76,11 @@ public abstract class PlaywrightBaseTest : IAsyncLifetime
     protected async Task SeedValidStorePixConfigAsync(
         bool isEnabled = false,
         bool useWhitelist = false,
-        bool passFeeToCustomer = false)
+        bool passFeeToCustomer = false,
+        bool p2PMode = false,
+        string? p2PCommissionPercent = null,
+        string? depixSplitAddress = null,
+        string? splitFee = null)
     {
         var storeId = Tester.StoreId ?? throw new InvalidOperationException("Create a store before seeding Pix configuration.");
         var storeRepository = Server.PayTester.GetService<StoreRepository>();
@@ -89,8 +93,15 @@ public abstract class PlaywrightBaseTest : IAsyncLifetime
             ["webhookSecretHashHex"] = ComputeSecretHash("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"),
             ["isEnabled"] = isEnabled,
             ["useWhitelist"] = useWhitelist,
-            ["passFeeToCustomer"] = passFeeToCustomer
+            ["passFeeToCustomer"] = passFeeToCustomer,
+            ["p2PMode"] = p2PMode
         };
+        if (p2PCommissionPercent is not null)
+            config["p2PCommissionPercent"] = p2PCommissionPercent;
+        if (depixSplitAddress is not null)
+            config["depixSplitAddress"] = depixSplitAddress;
+        if (splitFee is not null)
+            config["splitFee"] = splitFee;
 
         store.SetPaymentMethodConfig(PixPaymentMethodId, config);
 
@@ -118,7 +129,13 @@ public abstract class PlaywrightBaseTest : IAsyncLifetime
             config.Value<string>("webhookSecretHashHex") ?? config.Value<string>("WebhookSecretHashHex"),
             config.Value<bool?>("isEnabled") ?? config.Value<bool?>("IsEnabled") ?? false,
             config.Value<bool?>("useWhitelist") ?? config.Value<bool?>("UseWhitelist") ?? false,
-            config.Value<bool?>("passFeeToCustomer") ?? config.Value<bool?>("PassFeeToCustomer") ?? false);
+            config.Value<bool?>("passFeeToCustomer") ?? config.Value<bool?>("PassFeeToCustomer") ?? false,
+            config.Value<bool?>("p2PMode") ?? config.Value<bool?>("P2PMode") ?? false,
+            config.Value<string>("p2PCommissionPercent") ??
+            config.Value<string>("p2pCommissionPercent") ??
+            config.Value<string>("P2PCommissionPercent"),
+            config.Value<string>("depixSplitAddress") ?? config.Value<string>("DepixSplitAddress"),
+            config.Value<string>("splitFee") ?? config.Value<string>("SplitFee"));
     }
 
     protected async Task SeedValidServerPixConfigAsync(
@@ -189,5 +206,9 @@ public abstract class PlaywrightBaseTest : IAsyncLifetime
         string? WebhookSecretHashHex,
         bool IsEnabled,
         bool UseWhitelist,
-        bool PassFeeToCustomer);
+        bool PassFeeToCustomer,
+        bool P2PMode,
+        string? P2PCommissionPercent,
+        string? DepixSplitAddress,
+        string? SplitFee);
 }

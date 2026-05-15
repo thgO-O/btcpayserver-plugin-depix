@@ -115,7 +115,7 @@ else if (!Model.ConfigStatus.PixEnabled)
         </div>
         <div class="col-md-4">
             <label class="form-label" text-translate="true">Search</label>
-            <input name="q" value="@query" class="form-control" placeholder="InvoiceId, QR ID, Depix Address..." />
+            <input name="q" value="@query" class="form-control" placeholder="InvoiceId, QR ID, DePix Address..." />
         </div>
         <div class="col-md-2">
             <label class="form-label" text-translate="true">From</label>
@@ -148,7 +148,9 @@ else if (!Model.ConfigStatus.PixEnabled)
             <th>QR ID</th>
             <th class="text-end">Amount</th>
             <th>Status</th>
-            <th>Depix Address</th>
+            <th>Mode</th>
+            <th>DePix Address</th>
+            <th>Commission</th>
         </tr>
         </thead>
         <tbody>
@@ -184,6 +186,17 @@ else if (!Model.ConfigStatus.PixEnabled)
                 <td><span class="badge @Badge(raw)">@raw</span></td>
 
                 <td>
+                    @if (d.P2PMode is true)
+                    {
+                        <span class="badge bg-info text-dark">P2P</span>
+                    }
+                    else
+                    {
+                        <span>-</span>
+                    }
+                </td>
+
+                <td>
                     @if (!string.IsNullOrEmpty(d.DepixAddress))
                     {
                         <span class="d-inline-block text-truncate clipboard-button"
@@ -195,6 +208,27 @@ else if (!Model.ConfigStatus.PixEnabled)
                         </span>
                     }
                     else { <span>-</span> }
+                </td>
+
+                <td>
+                    @if (d.P2PMode is true && !string.IsNullOrEmpty(d.P2PCommissionPercent))
+                    {
+                        <span>@d.P2PCommissionPercent</span>
+                        @if (!string.IsNullOrEmpty(d.DepixSplitAddress))
+                        {
+                            <span class="d-inline-block text-truncate clipboard-button ms-2"
+                                  data-clipboard="@d.DepixSplitAddress"
+                                  style="max-width:180px"
+                                  data-bs-toggle="tooltip" data-bs-placement="top"
+                                  title="@d.DepixSplitAddress">
+                                  @d.DepixSplitAddress
+                            </span>
+                        }
+                    }
+                    else
+                    {
+                        <span>-</span>
+                    }
                 </td>
             </tr>
         }

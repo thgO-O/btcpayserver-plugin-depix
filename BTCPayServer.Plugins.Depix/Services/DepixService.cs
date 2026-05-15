@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -29,6 +30,7 @@ using BTCPayServer;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using NBitcoin;
 using NBXplorer;
@@ -274,7 +276,15 @@ public class DepixService(
     /// <param name="ct">Cancellation token</param>
     /// <returns>The deposit response containing QR code info</returns>
     /// <exception cref="PaymentMethodUnavailableException">Thrown if request fails</exception>
-    public async Task<DepixDepositResponse> RequestDepositAsync(HttpClient client, int amountInCents, string depixAddress, PixPaymentMethodConfig pixCfg, bool useWhitelist, CancellationToken ct)
+    public async Task<DepixDepositResponse> RequestDepositAsync(
+        HttpClient client,
+        int amountInCents,
+        string depixAddress,
+        PixPaymentMethodConfig pixCfg,
+        bool useWhitelist,
+        CancellationToken ct,
+        string? depixSplitAddressOverride = null,
+        string? splitFeeOverride = null)
     {
         var payload = new Dictionary<string, object>
         {
@@ -285,21 +295,41 @@ public class DepixService(
         if (useWhitelist)
             payload["whitelist"] = true;
 
-        var splitAddressTrimmed = pixCfg.DepixSplitAddress?.Trim();
-        if (!string.IsNullOrWhiteSpace(splitAddressTrimmed))
-            payload["depixSplitAddress"] = splitAddressTrimmed;
+        if (depixSplitAddressOverride is not null || splitFeeOverride is not null)
+        {
+            var splitAddressTrimmed = depixSplitAddressOverride?.Trim();
+            if (!string.IsNullOrWhiteSpace(splitAddressTrimmed))
+                payload["depixSplitAddress"] = splitAddressTrimmed;
 
-        var splitFeeTrimmed = pixCfg.SplitFee?.Trim();
-        if (!string.IsNullOrWhiteSpace(splitFeeTrimmed))
-            payload["splitFee"] = splitFeeTrimmed;
+            var splitFeeTrimmed = splitFeeOverride?.Trim();
+            if (!string.IsNullOrWhiteSpace(splitFeeTrimmed))
+                payload["splitFee"] = splitFeeTrimmed;
+        }
+        else
+        {
+            var splitAddressTrimmed = pixCfg.DepixSplitAddress?.Trim();
+            var splitFeeTrimmed = pixCfg.SplitFee?.Trim();
+            if (!string.IsNullOrWhiteSpace(splitAddressTrimmed) && !string.IsNullOrWhiteSpace(splitFeeTrimmed))
+            {
+                payload["depixSplitAddress"] = splitAddressTrimmed;
+                payload["splitFee"] = splitFeeTrimmed;
+            }
+        }
 
         var content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
         var resp = await client.PostAsync("deposit", content, ct);
-        if (!resp.IsSuccessStatusCode)
-            throw new PaymentMethodUnavailableException("Failed to generate Pix QR Code");
-        
-
         var body = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var response = string.IsNullOrWhiteSpace(body)
+                ? resp.ReasonPhrase
+                : body.Length > 500
+                    ? body[..500]
+                    : body;
+            throw new PaymentMethodUnavailableException(
+                $"Failed to generate Pix QR Code ({(int)resp.StatusCode} {response})");
+        }
+
         using var doc = JsonDocument.Parse(body);
         var root = doc.RootElement.GetProperty("response");
 
@@ -324,7 +354,14 @@ public class DepixService(
     /// <param name="depositResponse">The deposit response from DePix</param>
     /// <param name="depixAddress">The DePix address</param>
     /// <param name="amountInCents">The QR amount in cents</param>
-    public void ApplyPromptDetails(PaymentMethodContext context, DepixDepositResponse depositResponse, string depixAddress, int amountInCents)
+    public void ApplyPromptDetails(
+        PaymentMethodContext context,
+        DepixDepositResponse depositResponse,
+        string depixAddress,
+        int amountInCents,
+        bool p2PMode = false,
+        string? depixSplitAddress = null,
+        string? p2PCommissionPercent = null)
     {
         context.Prompt.Destination = depositResponse.QrImageUrl;
 
@@ -337,6 +374,20 @@ public class DepixService(
         details.QrImageUrl = depositResponse.QrImageUrl;
         details.CopyPaste = depositResponse.QrCopyPaste;
         details.DepixAddress = depixAddress;
+        if (p2PMode)
+        {
+            details.P2PMode = true;
+            details.DepixSplitAddress = depixSplitAddress;
+            details.P2PCommissionPercent = p2PCommissionPercent;
+            details.SplitFee = null;
+        }
+        else
+        {
+            details.P2PMode = null;
+            details.DepixSplitAddress = null;
+            details.P2PCommissionPercent = null;
+            details.SplitFee = null;
+        }
         if (amountInCents > 0)
             details.ValueInCents = amountInCents;
 
@@ -387,6 +438,12 @@ public class DepixService(
                      "Created"::timestamptz AS "Created",
                      ("Blob2"->'prompts'->'PIX'->'details'->>'qrId')          AS "QrId",
                      ("Blob2"->'prompts'->'PIX'->'details'->>'depixAddress')  AS "DepixAddress",
+                     NULLIF(("Blob2"->'prompts'->'PIX'->'details'->>'p2pMode'), '')::bool AS "P2PMode",
+                     ("Blob2"->'prompts'->'PIX'->'details'->>'depixSplitAddress') AS "DepixSplitAddress",
+                     COALESCE(
+                         ("Blob2"->'prompts'->'PIX'->'details'->>'p2pCommissionPercent'),
+                         ("Blob2"->'prompts'->'PIX'->'details'->>'splitFee')
+                     ) AS "P2PCommissionPercent",
                      NULLIF(("Blob2"->'prompts'->'PIX'->'details'->>'valueInCents'), '')::int AS "ValueInCents",
                      COALESCE(("Blob2"->'prompts'->'PIX'->'details'->>'status'), 'pending')   AS "DepixStatusRaw"
                    FROM "Invoices"
@@ -777,8 +834,8 @@ public class DepixService(
             PayerEuid = body.PayerEuid ?? existing?.PayerEuid,
             PayerTaxNumber = body.PayerTaxNumber ?? existing?.PayerTaxNumber,
             CustomerMessage = body.CustomerMessage ?? existing?.CustomerMessage
-        };
-    }
+    };
+}
 
     private static string GetPaymentId(string invoiceId, string qrId)
     {
@@ -931,6 +988,39 @@ public class DepixService(
         => !string.IsNullOrEmpty(encryptedApiKey) && !string.IsNullOrEmpty(webhookSecretHashHex);
 
     /// <summary>
+    /// Normalizes a split percentage to the DePix API format.
+    /// </summary>
+    /// <param name="raw">Raw percentage, with or without a percent suffix</param>
+    /// <param name="normalized">Normalized percentage with a percent suffix</param>
+    /// <returns>True if valid; otherwise false</returns>
+    public static bool TryNormalizeSplitFee(string raw, out string normalized)
+    {
+        normalized = "";
+        var trimmed = raw.Trim();
+        if (trimmed.EndsWith("%", StringComparison.Ordinal))
+            trimmed = trimmed[..^1].Trim();
+
+        if (string.IsNullOrEmpty(trimmed) || trimmed.Count(c => c == ',') > 1)
+            return false;
+
+        if (trimmed.Contains('.', StringComparison.Ordinal) && trimmed.Contains(',', StringComparison.Ordinal))
+            return false;
+
+        if (trimmed.Contains(',', StringComparison.Ordinal))
+            trimmed = trimmed.Replace(',', '.');
+
+        if (!decimal.TryParse(trimmed, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var value))
+            return false;
+        if (value <= 0m || value >= 100m)
+            return false;
+        var scale = (decimal.GetBits(value)[3] >> 16) & 0xFF;
+        if (scale > 2)
+            return false;
+        normalized = value.ToString("0.##", CultureInfo.InvariantCulture) + "%";
+        return true;
+    }
+
+    /// <summary>
     /// Gets the effective configuration (merging store and server configs)
     /// </summary>
     /// <param name="storeCfg">The store configuration</param>
@@ -1063,5 +1153,92 @@ public class DepixService(
         return chainName == ChainName.Mainnet
             ? "https://liquid.network/tx/{0}"
             : "https://liquid.network/testnet/tx/{0}";
+    }
+}
+
+public sealed class P2PInvoicePaymentMethodRestrictor(
+    EventAggregator eventAggregator,
+    ApplicationDbContextFactory dbContextFactory)
+    : IHostedService
+{
+    private IEventAggregatorSubscription? subscription;
+
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        subscription = eventAggregator.SubscribeAsync<InvoiceEvent>(HandleInvoiceEvent);
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        subscription?.Dispose();
+        subscription = null;
+        return Task.CompletedTask;
+    }
+
+    public static bool TryRestrictInvoiceToPixIfP2P(InvoiceEntity invoice)
+    {
+        var prompts = invoice.GetPaymentPrompts().ToList();
+        var pixPrompt = prompts.FirstOrDefault(prompt => prompt.PaymentMethodId == DePixPlugin.PixPmid);
+        if (pixPrompt is null || !IsP2PPixPrompt(pixPrompt) ||
+            prompts.All(prompt => prompt.PaymentMethodId == DePixPlugin.PixPmid))
+        {
+            return false;
+        }
+
+        invoice.SetPaymentPrompts(new PaymentPromptDictionary([pixPrompt]));
+        return true;
+    }
+
+    private async Task HandleInvoiceEvent(InvoiceEvent invoiceEvent)
+    {
+        if (invoiceEvent.Name != InvoiceEvent.Created)
+            return;
+
+        await RestrictInvoiceToPixIfP2PAsync(invoiceEvent.Invoice);
+    }
+
+    private async Task RestrictInvoiceToPixIfP2PAsync(InvoiceEntity invoice)
+    {
+        await using var strategyContext = dbContextFactory.CreateContext();
+        await strategyContext.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            await using var dbContext = dbContextFactory.CreateContext();
+            await using var transaction = await dbContext.Database.BeginTransactionAsync();
+            var invoiceData = await dbContext.Invoices
+                .FromSqlInterpolated($"""
+                                      SELECT *, xmin
+                                      FROM "Invoices"
+                                      WHERE "Id" = {invoice.Id}
+                                      FOR UPDATE
+                                      """)
+                .SingleOrDefaultAsync();
+            if (invoiceData is null)
+                return;
+
+            var storedInvoice = invoiceData.GetBlob();
+            if (!TryRestrictInvoiceToPixIfP2P(storedInvoice))
+                return;
+
+            invoiceData.SetBlob(storedInvoice);
+
+            await dbContext.Database.ExecuteSqlInterpolatedAsync($"""
+                UPDATE "Invoices"
+                SET "Blob2" = CAST({invoiceData.Blob2} AS jsonb)
+                WHERE "Id" = {invoice.Id}
+                """);
+            await dbContext.Database.ExecuteSqlInterpolatedAsync($"""
+                DELETE FROM "AddressInvoices"
+                WHERE "InvoiceDataId" = {invoice.Id}
+                  AND "PaymentMethodId" <> {DePixPlugin.PixPmid.ToString()}
+                """);
+            await transaction.CommitAsync();
+        });
+    }
+
+    private static bool IsP2PPixPrompt(PaymentPrompt pixPrompt)
+    {
+        var token = pixPrompt.Details?["p2pMode"] ?? pixPrompt.Details?["P2PMode"];
+        return token is { Type: JTokenType.Boolean } && token.Value<bool>();
     }
 }

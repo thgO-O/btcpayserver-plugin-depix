@@ -1,12 +1,16 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using BTCPayServer.Data;
 using BTCPayServer.Payments;
 using BTCPayServer.Payments.Bitcoin;
 using BTCPayServer.Plugins.Altcoins;
+using BTCPayServer.Plugins.Depix.Errors;
 using BTCPayServer.Plugins.Depix.Services;
+using Microsoft.AspNetCore.Http;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using JsonSerializer = Newtonsoft.Json.JsonSerializer;
 
@@ -18,9 +22,12 @@ namespace BTCPayServer.Plugins.Depix.PaymentHandlers;
 public class PixPaymentMethodHandler(
     BTCPayNetworkProvider networkProvider,
     DepixService depixService,
+    IHttpContextAccessor httpContextAccessor,
     ISecretProtector secretProtector)
     : IPaymentMethodHandler, IHasNetwork
 {
+    private const string P2PDepixAddressMetadataKey = "depixAddress";
+
     /// <summary>
     /// The payment method ID for Pix
     /// </summary>
@@ -73,16 +80,107 @@ public class PixPaymentMethodHandler(
 
         using var client = depixService.CreateDepixClient(apiKey);
 
-        var address = await depixService.GenerateFreshDePixAddress(store.Id);
+        string? p2PDestinationAddress = null;
+        var p2PMode = pixCfg.P2PMode && TryGetP2PDestinationAddress(context, out p2PDestinationAddress);
+        string address;
+
+        string? depixSplitAddress = null;
+        string? p2PCommissionPercent = null;
+        try
+        {
+            address = p2PMode
+                ? p2PDestinationAddress!
+                : await depixService.GenerateFreshDePixAddress(store.Id);
+
+            if (p2PMode)
+            {
+                if (string.IsNullOrWhiteSpace(pixCfg.P2PCommissionPercent) ||
+                    !DepixService.TryNormalizeSplitFee(pixCfg.P2PCommissionPercent, out p2PCommissionPercent))
+                {
+                    throw new PaymentMethodUnavailableException("P2P mode requires a seller commission percentage");
+                }
+
+                depixSplitAddress = await depixService.GenerateFreshDePixAddress(store.Id);
+            }
+        }
+        catch (Exception ex) when (ex is PixPluginException or PixPaymentException)
+        {
+            throw new PaymentMethodUnavailableException(ex.Message);
+        }
+
         var deposit = await depixService.RequestDepositAsync(
             client, 
             amountInCents, 
             address, 
             pixCfg,
             effectiveConfig.UseWhitelist,
-            CancellationToken.None);
+            CancellationToken.None,
+            depixSplitAddress,
+            p2PCommissionPercent);
 
-        depixService.ApplyPromptDetails(context, deposit, address, amountInCents);
+        depixService.ApplyPromptDetails(context, deposit, address, amountInCents, p2PMode, depixSplitAddress, p2PCommissionPercent);
+    }
+
+    private bool TryGetP2PDestinationAddress(PaymentMethodContext context, out string? address)
+    {
+        var metadata = context.InvoiceEntity.Metadata?.AdditionalData;
+        return TryGetP2PDestinationAddress(
+            metadata,
+            metadata?.ContainsKey(P2PDepixAddressMetadataKey) is true ? null : GetCurrentFormResponse(),
+            out address);
+    }
+
+    private static bool TryGetP2PDestinationAddress(
+        IDictionary<string, JToken>? metadata,
+        string? formResponse,
+        out string? address)
+    {
+        address = null;
+        var token = metadata is not null && metadata.TryGetValue(P2PDepixAddressMetadataKey, out var value)
+            ? value
+            : TryGetP2PDestinationAddressFromFormResponse(formResponse);
+
+        if (token is null)
+            return false;
+
+        if (token.Type != JTokenType.String)
+            throw new PaymentMethodUnavailableException("P2P mode requires a DePix address");
+
+        address = token.Value<string>()?.Trim();
+        if (string.IsNullOrWhiteSpace(address))
+            throw new PaymentMethodUnavailableException("P2P mode requires a DePix address");
+
+        return true;
+    }
+
+    private string? GetCurrentFormResponse()
+    {
+        var request = httpContextAccessor.HttpContext?.Request;
+        if (request is null)
+            return null;
+
+        if (request.HasFormContentType && request.Form.TryGetValue("formResponse", out var formResponse))
+            return formResponse.ToString();
+
+        return request.Query.TryGetValue("formResponse", out var queryFormResponse)
+            ? queryFormResponse.ToString()
+            : null;
+    }
+
+    private static JToken? TryGetP2PDestinationAddressFromFormResponse(string? formResponse)
+    {
+        if (string.IsNullOrWhiteSpace(formResponse))
+            return null;
+
+        try
+        {
+            var values = JObject.Parse(formResponse);
+            return values.TryGetValue(P2PDepixAddressMetadataKey, out var token) ? token : null;
+        }
+        catch (JsonReaderException)
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -191,6 +289,24 @@ public class DePixPaymentMethodDetails
     /// The DePix address
     /// </summary>
     public string? DepixAddress { get; set; }
+    /// <summary>
+    /// Whether this Pix deposit was created in P2P mode
+    /// </summary>
+    [JsonProperty("p2pMode")]
+    public bool? P2PMode { get; set; }
+    /// <summary>
+    /// The DePix split address used for seller commission
+    /// </summary>
+    public string? DepixSplitAddress { get; set; }
+    /// <summary>
+    /// The seller commission percentage used for P2P sales
+    /// </summary>
+    [JsonProperty("p2pCommissionPercent")]
+    public string? P2PCommissionPercent { get; set; }
+    /// <summary>
+    /// Legacy split percentage field used by older P2P prompt details
+    /// </summary>
+    public string? SplitFee { get; set; }
     /// <summary>
     /// The status of the payment
     /// </summary>

@@ -49,12 +49,22 @@ public class PixStoreViewModel
     public bool PassFeeToCustomer { get; set; }
 
     /// <summary>
-    /// Optional address to split the payment to
+    /// Whether to sell DePix directly to a buyer-supplied DePix address
+    /// </summary>
+    public bool P2PMode { get; set; }
+
+    /// <summary>
+    /// Seller commission percentage for P2P sales
+    /// </summary>
+    public string? P2PCommissionPercent { get; set; }
+
+    /// <summary>
+    /// Optional address to split normal Pix payments to
     /// </summary>
     public string? DepixSplitAddress { get; set; }
 
     /// <summary>
-    /// Fee configuration for split payments
+    /// Fee configuration for normal Pix split payments
     /// </summary>
     public string? SplitFee { get; set; }
 
