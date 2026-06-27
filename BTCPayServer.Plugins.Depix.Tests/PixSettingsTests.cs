@@ -1,5 +1,3 @@
-using System.Threading.Tasks;
-using System.Linq;
 using BTCPayServer.Abstractions.Form;
 using BTCPayServer.Abstractions.Models;
 using BTCPayServer.Data;
@@ -123,9 +121,7 @@ public class PixSettingsTests : PlaywrightBaseTest
         var formData = await formDataService.GetForm(Tester.StoreId!, p2PPosSettings.FormId);
         Assert.NotNull(formData);
         var form = Form.Parse(formData!.Config);
-        var depixAddressField = form.GetFieldByFullName("depixAddress");
-        Assert.NotNull(depixAddressField);
-        Assert.True(depixAddressField!.Required);
+        AssertRequiredP2PFields(form);
     }
 
     [Fact(Timeout = TestUtils.TestTimeout)]
@@ -249,9 +245,7 @@ public class PixSettingsTests : PlaywrightBaseTest
         var forms = await formDataService.GetForms(Tester.StoreId!);
         var repairedForm = Assert.Single(forms, form => form.Name == "DePix P2P checkout");
         var parsedForm = Form.Parse(repairedForm.Config);
-        var depixAddressField = parsedForm.GetFieldByFullName("depixAddress");
-        Assert.NotNull(depixAddressField);
-        Assert.True(depixAddressField!.Required);
+        AssertRequiredP2PFields(parsedForm);
         Assert.NotNull(parsedForm.GetFieldByFullName("customerNote"));
 
         var apps = (await appService.GetApps(PointOfSaleAppType.AppType))
@@ -284,5 +278,16 @@ public class PixSettingsTests : PlaywrightBaseTest
         Assert.True(storeConfig!.IsEnabled);
         Assert.Null(storeConfig.EncryptedApiKey);
         Assert.Null(storeConfig.WebhookSecretHashHex);
+    }
+
+    private static void AssertRequiredP2PFields(Form form)
+    {
+        var depixAddressField = form.GetFieldByFullName("depixAddress");
+        Assert.NotNull(depixAddressField);
+        Assert.True(depixAddressField!.Required);
+
+        var taxNumberField = form.GetFieldByFullName("endUserTaxNumber");
+        Assert.NotNull(taxNumberField);
+        Assert.True(taxNumberField!.Required);
     }
 }
