@@ -1,17 +1,11 @@
-using System;
-using System.Collections.Generic;
 using System.Net;
-using System.Net.Http;
 using System.Reflection;
 using System.Runtime.CompilerServices;
-using System.Threading;
-using System.Threading.Tasks;
 using BTCPayServer.Client.Models;
 using BTCPayServer.Data;
 using BTCPayServer.Logging;
 using BTCPayServer.Payments;
 using BTCPayServer.Plugins.Depix.Data.Models;
-using BTCPayServer.Plugins.Depix.Errors;
 using BTCPayServer.Plugins.Depix.PaymentHandlers;
 using BTCPayServer.Plugins.Depix.Services;
 using BTCPayServer.Rating;
@@ -25,6 +19,7 @@ namespace BTCPayServer.Plugins.Depix.Tests;
 public class PixPaymentMethodHandlerTests
 {
     private static readonly PaymentMethodId PixPmid = new("PIX");
+    private const string TestEndUserTaxNumber = "12345678901";
 
     [Theory]
     [InlineData("0,5", "0.5%")]
@@ -216,11 +211,14 @@ public class PixPaymentMethodHandlerTests
                 SplitFee = "3%"
             },
             useWhitelist: true,
+            TestEndUserTaxNumber,
             CancellationToken.None);
 
         var payload = JObject.Parse(capture.Body!);
         Assert.Equal(10000, payload.Value<int>("amountInCents"));
         Assert.Equal("merchant-depix-address", payload.Value<string>("depixAddress"));
+        Assert.Equal("12345678901", payload.Value<string>("endUserTaxNumber"));
+        Assert.False(payload.ContainsKey("endUserFullName"));
         Assert.Equal("configured-split-address", payload.Value<string>("depixSplitAddress"));
         Assert.Equal("3%", payload.Value<string>("splitFee"));
         Assert.True(payload.Value<bool>("whitelist"));
@@ -243,6 +241,7 @@ public class PixPaymentMethodHandlerTests
                 P2PCommissionPercent = "5%"
             },
             useWhitelist: false,
+            TestEndUserTaxNumber,
             CancellationToken.None);
 
         var payload = JObject.Parse(capture.Body!);
@@ -268,6 +267,7 @@ public class PixPaymentMethodHandlerTests
                 SplitFee = "3%"
             },
             useWhitelist: false,
+            TestEndUserTaxNumber,
             CancellationToken.None,
             depixSplitAddressOverride: "fresh-store-commission-address",
             splitFeeOverride: "5%");
@@ -295,10 +295,69 @@ public class PixPaymentMethodHandlerTests
                 "buyer-depix-address",
                 new PixPaymentMethodConfig(),
                 useWhitelist: false,
+                TestEndUserTaxNumber,
                 CancellationToken.None));
 
         Assert.Contains("400", ex.Message);
         Assert.Contains("invalid depixSplitAddress", ex.Message);
+    }
+
+    [Fact]
+    public void PayerTaxNumberReadsInvoiceMetadata()
+    {
+        var method = typeof(PixPaymentMethodHandler).GetMethod(
+            "ResolvePayerTaxNumber",
+            BindingFlags.Static | BindingFlags.NonPublic)!;
+
+        object?[] args =
+        [
+            new Dictionary<string, JToken>
+            {
+                ["endUserTaxNumber"] = " 12345678901 "
+            },
+            null
+        ];
+
+        var taxNumber = Assert.IsType<string>(method.Invoke(null, args));
+        Assert.Equal("12345678901", taxNumber);
+    }
+
+    [Fact]
+    public void PayerTaxNumberReadsPendingPosFormResponse()
+    {
+        var method = typeof(PixPaymentMethodHandler).GetMethod(
+            "ResolvePayerTaxNumber",
+            BindingFlags.Static | BindingFlags.NonPublic)!;
+
+        object?[] args =
+        [
+            null,
+            """{"endUserTaxNumber":"12345678901"}"""
+        ];
+
+        var taxNumber = Assert.IsType<string>(method.Invoke(null, args));
+        Assert.Equal("12345678901", taxNumber);
+    }
+
+    [Fact]
+    public void PayerTaxNumberIsRequired()
+    {
+        var method = typeof(PixPaymentMethodHandler).GetMethod(
+            "ResolvePayerTaxNumber",
+            BindingFlags.Static | BindingFlags.NonPublic)!;
+
+        object?[] args =
+        [
+            new Dictionary<string, JToken>
+            {
+                ["buyerName"] = "Alice Buyer"
+            },
+            null
+        ];
+
+        var ex = Assert.Throws<TargetInvocationException>(() => method.Invoke(null, args));
+        var unavailable = Assert.IsType<PaymentMethodUnavailableException>(ex.InnerException);
+        Assert.Contains("CPF/CNPJ", unavailable.Message);
     }
 
     [Fact]

@@ -26,7 +26,6 @@ using BTCPayServer.Services.Invoices;
 using BTCPayServer.Services.Rates;
 using BTCPayServer.Services.Stores;
 using BTCPayServer.Services.Wallets;
-using BTCPayServer;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -282,14 +281,20 @@ public class DepixService(
         string depixAddress,
         PixPaymentMethodConfig pixCfg,
         bool useWhitelist,
+        string endUserTaxNumber,
         CancellationToken ct,
         string? depixSplitAddressOverride = null,
         string? splitFeeOverride = null)
     {
+        endUserTaxNumber = endUserTaxNumber.Trim();
+        if (string.IsNullOrWhiteSpace(endUserTaxNumber))
+            throw new PaymentMethodUnavailableException("Pix requires payer CPF/CNPJ.");
+
         var payload = new Dictionary<string, object>
         {
             ["amountInCents"] = amountInCents,
-            ["depixAddress"]  = depixAddress
+            ["depixAddress"]  = depixAddress,
+            ["endUserTaxNumber"] = endUserTaxNumber
         };
         
         if (useWhitelist)
