@@ -19,7 +19,7 @@ namespace BTCPayServer.Plugins.Depix.Tests;
 public class PixPaymentMethodHandlerTests
 {
     private static readonly PaymentMethodId PixPmid = new("PIX");
-    private const string TestEndUserTaxNumber = "12345678901";
+    private const string TestEndUserTaxNumber = "01234567890";
 
     [Theory]
     [InlineData("0,5", "0.5%")]
@@ -217,7 +217,7 @@ public class PixPaymentMethodHandlerTests
         var payload = JObject.Parse(capture.Body!);
         Assert.Equal(10000, payload.Value<int>("amountInCents"));
         Assert.Equal("merchant-depix-address", payload.Value<string>("depixAddress"));
-        Assert.Equal("12345678901", payload.Value<string>("endUserTaxNumber"));
+        Assert.Equal(TestEndUserTaxNumber, payload.Value<string>("endUserTaxNumber"));
         Assert.False(payload.ContainsKey("endUserFullName"));
         Assert.Equal("configured-split-address", payload.Value<string>("depixSplitAddress"));
         Assert.Equal("3%", payload.Value<string>("splitFee"));
@@ -313,13 +313,13 @@ public class PixPaymentMethodHandlerTests
         [
             new Dictionary<string, JToken>
             {
-                ["endUserTaxNumber"] = " 12345678901 "
+                ["endUserTaxNumber"] = $" {TestEndUserTaxNumber} "
             },
             null
         ];
 
         var taxNumber = Assert.IsType<string>(method.Invoke(null, args));
-        Assert.Equal("12345678901", taxNumber);
+        Assert.Equal(TestEndUserTaxNumber, taxNumber);
     }
 
     [Fact]
@@ -332,11 +332,32 @@ public class PixPaymentMethodHandlerTests
         object?[] args =
         [
             null,
-            """{"endUserTaxNumber":"12345678901"}"""
+            $$"""{"endUserTaxNumber":"{{TestEndUserTaxNumber}}"}"""
         ];
 
         var taxNumber = Assert.IsType<string>(method.Invoke(null, args));
-        Assert.Equal("12345678901", taxNumber);
+        Assert.Equal(TestEndUserTaxNumber, taxNumber);
+    }
+
+    [Fact]
+    public void PayerTaxNumberRejectsNumericMetadata()
+    {
+        var method = typeof(PixPaymentMethodHandler).GetMethod(
+            "ResolvePayerTaxNumber",
+            BindingFlags.Static | BindingFlags.NonPublic)!;
+
+        object?[] args =
+        [
+            new Dictionary<string, JToken>
+            {
+                ["endUserTaxNumber"] = new JValue(99999999999L)
+            },
+            null
+        ];
+
+        var ex = Assert.Throws<TargetInvocationException>(() => method.Invoke(null, args));
+        var unavailable = Assert.IsType<PaymentMethodUnavailableException>(ex.InnerException);
+        Assert.Contains("string", unavailable.Message);
     }
 
     [Fact]

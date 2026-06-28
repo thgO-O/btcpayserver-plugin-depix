@@ -203,7 +203,7 @@ public class PixPaymentMethodHandler(
         if (string.IsNullOrWhiteSpace(taxNumber))
         {
             throw new PaymentMethodUnavailableException(
-                "Pix requires payer CPF/CNPJ. Provide endUserTaxNumber.");
+                "Pix requires payer CPF/CNPJ in invoice metadata or POS form field endUserTaxNumber. Send it as a string.");
         }
 
         return taxNumber.Trim();
