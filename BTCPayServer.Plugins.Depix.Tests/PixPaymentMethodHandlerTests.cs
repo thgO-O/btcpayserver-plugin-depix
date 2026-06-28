@@ -1,6 +1,5 @@
 using System.Net;
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using BTCPayServer.Client.Models;
 using BTCPayServer.Data;
 using BTCPayServer.Logging;
@@ -332,7 +331,7 @@ public class PixPaymentMethodHandlerTests
         object?[] args =
         [
             null,
-            $$"""{"endUserTaxNumber":"{{TestEndUserTaxNumber}}"}"""
+            JObject.Parse($$"""{"endUserTaxNumber":"{{TestEndUserTaxNumber}}"}""")
         ];
 
         var taxNumber = Assert.IsType<string>(method.Invoke(null, args));
@@ -384,32 +383,21 @@ public class PixPaymentMethodHandlerTests
     [Fact]
     public void P2PDestinationAddressRejectsNonStringMetadataAsUnavailable()
     {
-        var handler = RuntimeHelpers.GetUninitializedObject(typeof(PixPaymentMethodHandler));
-        var method = typeof(PixPaymentMethodHandler).GetMethod("TryGetP2PDestinationAddress", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var invoice = new InvoiceEntity
-        {
-            Id = "invoice-p2p-non-string-metadata",
-            Currency = "BRL",
-            Price = 12.34m,
-            Status = InvoiceStatus.New,
-            Metadata = new InvoiceMetadata
-            {
-                AdditionalData = new Dictionary<string, JToken>
-                {
-                    ["depixAddress"] = new JValue(123)
-                }
-            }
-        };
-        var context = new PaymentMethodContext(
-            new BTCPayServer.Data.StoreData { Id = "store-p2p-non-string-metadata" },
-            new StoreBlob(),
-            new JObject(),
-            new TestPixHandler(),
-            invoice,
-            new InvoiceLogs());
+        var method = typeof(PixPaymentMethodHandler).GetMethod(
+            "TryGetP2PDestinationAddress",
+            BindingFlags.Static | BindingFlags.NonPublic)!;
 
-        object?[] args = [context, null];
-        var ex = Assert.Throws<TargetInvocationException>(() => method.Invoke(handler, args));
+        object?[] args =
+        [
+            new Dictionary<string, JToken>
+            {
+                ["depixAddress"] = new JValue(123)
+            },
+            null,
+            null
+        ];
+
+        var ex = Assert.Throws<TargetInvocationException>(() => method.Invoke(null, args));
         var unavailable = Assert.IsType<PaymentMethodUnavailableException>(ex.InnerException);
         Assert.Equal("P2P mode requires a DePix address", unavailable.Message);
     }
@@ -424,7 +412,7 @@ public class PixPaymentMethodHandlerTests
         object?[] args =
         [
             null,
-            """{"depixAddress":" buyer-depix-address "}""",
+            JObject.Parse("""{"depixAddress":" buyer-depix-address "}"""),
             null
         ];
 
@@ -447,7 +435,7 @@ public class PixPaymentMethodHandlerTests
             {
                 ["depixAddress"] = "metadata-depix-address"
             },
-            """{"depixAddress":"form-depix-address"}""",
+            JObject.Parse("""{"depixAddress":"form-depix-address"}"""),
             null
         ];
 
@@ -467,7 +455,7 @@ public class PixPaymentMethodHandlerTests
         object?[] args =
         [
             null,
-            """{"depixAddress":123}""",
+            JObject.Parse("""{"depixAddress":123}"""),
             null
         ];
 

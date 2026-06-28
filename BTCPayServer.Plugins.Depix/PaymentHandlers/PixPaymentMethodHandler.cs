@@ -82,13 +82,13 @@ public class PixPaymentMethodHandler(
         using var client = depixService.CreateDepixClient(apiKey);
 
         var metadata = context.InvoiceEntity.Metadata?.AdditionalData;
-        var formResponse = GetCurrentFormResponse();
-        var endUserTaxNumber = ResolvePayerTaxNumber(metadata, formResponse);
+        var formValues = TryParseFormResponse(GetCurrentFormResponse());
+        var endUserTaxNumber = ResolvePayerTaxNumber(metadata, formValues);
 
         string? p2PDestinationAddress = null;
         var p2PMode = pixCfg.P2PMode && TryGetP2PDestinationAddress(
             metadata,
-            metadata?.ContainsKey(P2PDepixAddressMetadataKey) is true ? null : formResponse,
+            metadata?.ContainsKey(P2PDepixAddressMetadataKey) is true ? null : formValues,
             out p2PDestinationAddress);
         string address;
 
@@ -130,24 +130,15 @@ public class PixPaymentMethodHandler(
         depixService.ApplyPromptDetails(context, deposit, address, amountInCents, p2PMode, depixSplitAddress, p2PCommissionPercent);
     }
 
-    private bool TryGetP2PDestinationAddress(PaymentMethodContext context, out string? address)
-    {
-        var metadata = context.InvoiceEntity.Metadata?.AdditionalData;
-        return TryGetP2PDestinationAddress(
-            metadata,
-            metadata?.ContainsKey(P2PDepixAddressMetadataKey) is true ? null : GetCurrentFormResponse(),
-            out address);
-    }
-
     private static bool TryGetP2PDestinationAddress(
         IDictionary<string, JToken>? metadata,
-        string? formResponse,
+        JObject? formValues,
         out string? address)
     {
         address = null;
         var token = metadata is not null && metadata.TryGetValue(P2PDepixAddressMetadataKey, out var value)
             ? value
-            : TryGetP2PDestinationAddressFromFormResponse(formResponse);
+            : formValues?.GetValue(P2PDepixAddressMetadataKey);
 
         if (token is null)
             return false;
@@ -176,29 +167,12 @@ public class PixPaymentMethodHandler(
             : null;
     }
 
-    private static JToken? TryGetP2PDestinationAddressFromFormResponse(string? formResponse)
-    {
-        if (string.IsNullOrWhiteSpace(formResponse))
-            return null;
-
-        try
-        {
-            var values = JObject.Parse(formResponse);
-            return values.TryGetValue(P2PDepixAddressMetadataKey, out var token) ? token : null;
-        }
-        catch (JsonReaderException)
-        {
-            return null;
-        }
-    }
-
     private static string ResolvePayerTaxNumber(
         IDictionary<string, JToken>? metadata,
-        string? formResponse)
+        JObject? formValues)
     {
-        var formValues = TryParseFormResponse(formResponse);
         var taxNumber = TryGetString(metadata, EndUserTaxNumberMetadataKey) ??
-                        TryGetString(formValues, EndUserTaxNumberMetadataKey);
+                        TryGetString(formValues?.GetValue(EndUserTaxNumberMetadataKey));
 
         if (string.IsNullOrWhiteSpace(taxNumber))
         {
@@ -226,16 +200,15 @@ public class PixPaymentMethodHandler(
 
     private static string? TryGetString(IDictionary<string, JToken>? values, string key)
     {
-        if (values is null || !values.TryGetValue(key, out var token) || token.Type != JTokenType.String)
+        if (values is null || !values.TryGetValue(key, out var token))
             return null;
 
-        var value = token.Value<string>()?.Trim();
-        return string.IsNullOrWhiteSpace(value) ? null : value;
+        return TryGetString(token);
     }
 
-    private static string? TryGetString(JObject? values, string key)
+    private static string? TryGetString(JToken? token)
     {
-        if (values is null || !values.TryGetValue(key, out var token) || token.Type != JTokenType.String)
+        if (token?.Type != JTokenType.String)
             return null;
 
         var value = token.Value<string>()?.Trim();
