@@ -20,7 +20,7 @@ The value must be a JSON string:
 
 Do not send CPF/CNPJ as a JSON number. Valid CPF/CNPJ values can start with `0`, and numeric serialization can remove leading zeros.
 
-The plugin trims surrounding whitespace and sends the value unchanged after trimming. It does not normalize punctuation and does not validate CPF/CNPJ format locally. Eulen/Pix validates the value.
+Formatted values such as `012.345.678-90` and `12.345.678/0001-95` are accepted. The plugin removes the mask and sends only digits to Eulen. It does not validate CPF/CNPJ format locally; Eulen/Pix validates the value.
 
 The plugin does not require `endUserFullName` and does not send EUID.
 

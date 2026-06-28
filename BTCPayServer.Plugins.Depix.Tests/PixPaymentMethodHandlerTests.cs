@@ -223,6 +223,28 @@ public class PixPaymentMethodHandlerTests
         Assert.True(payload.Value<bool>("whitelist"));
     }
 
+    [Theory]
+    [InlineData(" 012.345.678-90 ", "01234567890")]
+    [InlineData("12.345.678/0001-95", "12345678000195")]
+    public async Task RequestDepositRemovesTaxNumberFormattingBeforeSending(string input, string expected)
+    {
+        var capture = new CaptureDepositRequestHandler();
+        using var client = new HttpClient(capture) { BaseAddress = new Uri("https://example.invalid/api/") };
+        var service = new DepixService(null!, null!, null!, null!, null!, null!, null!, null!, null!);
+
+        await service.RequestDepositAsync(
+            client,
+            10000,
+            "merchant-depix-address",
+            new PixPaymentMethodConfig(),
+            useWhitelist: false,
+            input,
+            CancellationToken.None);
+
+        var payload = JObject.Parse(capture.Body!);
+        Assert.Equal(expected, payload.Value<string>("endUserTaxNumber"));
+    }
+
     [Fact]
     public async Task RequestDepositDoesNotSendConfiguredSplitFeeWithoutConfiguredSplitAddress()
     {

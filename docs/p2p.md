@@ -27,7 +27,7 @@ Fields:
 * `depixAddress`: buyer's DePix address.
 * `endUserTaxNumber`: Pix payer CPF/CNPJ as a string.
 
-Do not send `endUserTaxNumber` as a JSON number because valid CPF/CNPJ values can start with `0`.
+Do not send `endUserTaxNumber` as a JSON number because valid CPF/CNPJ values can start with `0`. Formatted values are accepted, but the plugin sends only digits to Eulen.
 
 ## Existing POS Apps
 

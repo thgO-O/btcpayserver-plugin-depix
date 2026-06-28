@@ -42,6 +42,8 @@ Send CPF/CNPJ as a JSON string, not a number, because valid CPF/CNPJ values can 
 }
 ```
 
+Formatted values such as `012.345.678-90` and `12.345.678/0001-95` are accepted. The plugin removes the mask and sends only digits to Eulen.
+
 Pix will be unavailable for an invoice if `endUserTaxNumber` is missing, blank, or sent as a JSON number.
 
 See [Checkout Requirements](docs/checkout-requirements.md) for invoice, API, and POS behavior.
