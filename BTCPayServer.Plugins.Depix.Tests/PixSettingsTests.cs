@@ -1,5 +1,3 @@
-using System.Threading.Tasks;
-using System.Linq;
 using BTCPayServer.Abstractions.Form;
 using BTCPayServer.Abstractions.Models;
 using BTCPayServer.Data;
@@ -49,12 +47,14 @@ public class PixSettingsTests : PlaywrightBaseTest
         await Page.Locator("#UseWhitelist").SetCheckedAsync(true);
         await Page.GetByRole(AriaRole.Button, new() { Name = "Save" }).ClickAsync();
 
-        await Tester.FindAlertMessage(partialText: "Pix configuration applied");
+        await Tester.FindAlertMessage(partialText: "DePix payer identification form was created");
 
         Assert.True(await Page.Locator("#IsEnabled").IsCheckedAsync());
         await Page.GetByText("Payment options").ClickAsync();
         Assert.True(await Page.Locator("#PassFeeToCustomer").IsCheckedAsync());
         Assert.True(await Page.Locator("#UseWhitelist").IsCheckedAsync());
+        await AssertPixIdentificationFormReady();
+        await AssertNoPointOfSaleAppsCreated();
     }
 
     [Fact(Timeout = TestUtils.TestTimeout)]
@@ -123,9 +123,7 @@ public class PixSettingsTests : PlaywrightBaseTest
         var formData = await formDataService.GetForm(Tester.StoreId!, p2PPosSettings.FormId);
         Assert.NotNull(formData);
         var form = Form.Parse(formData!.Config);
-        var depixAddressField = form.GetFieldByFullName("depixAddress");
-        Assert.NotNull(depixAddressField);
-        Assert.True(depixAddressField!.Required);
+        AssertRequiredP2PFields(form);
     }
 
     [Fact(Timeout = TestUtils.TestTimeout)]
@@ -150,6 +148,49 @@ public class PixSettingsTests : PlaywrightBaseTest
         Assert.Equal("5%", storeConfig.P2PCommissionPercent);
         Assert.Null(storeConfig.SplitFee);
         Assert.Null(storeConfig.DepixSplitAddress);
+    }
+
+    [Fact(Timeout = TestUtils.TestTimeout)]
+    [Trait("Category", "PlaywrightUITest")]
+    public async Task DoesNotCreatePixIdentificationFormWhenCompatibleFormExists()
+    {
+        await InitializeStoreOwnerAsync();
+        await SeedValidStorePixConfigAsync();
+
+        var formDataService = Server.PayTester.GetService<FormDataService>();
+        var compatibleForm = new Form();
+        compatibleForm.Fields.Add(Field.Create(
+            "Customer note",
+            "customerNote",
+            null,
+            false,
+            "Optional note."));
+        compatibleForm.Fields.Add(Field.Create(
+            "CPF/CNPJ",
+            "endUserTaxNumber",
+            null,
+            true,
+            "CPF/CNPJ of the Pix payer."));
+        var compatibleFormData = new FormData
+        {
+            StoreId = Tester.StoreId!,
+            Name = "Existing checkout",
+            Config = compatibleForm.ToString()
+        };
+        await formDataService.AddOrUpdateForm(compatibleFormData);
+
+        await GoToPixSettingsAsync();
+
+        await Page.Locator("#IsEnabled").SetCheckedAsync(true);
+        await Page.GetByRole(AriaRole.Button, new() { Name = "Save" }).ClickAsync();
+
+        await Tester.FindAlertMessage(partialText: "Pix configuration applied");
+
+        var forms = await formDataService.GetForms(Tester.StoreId!);
+        Assert.DoesNotContain(forms, form => form.Name == "DePix payer identification");
+        var existingForm = Assert.Single(forms, form => form.Name == "Existing checkout");
+        AssertRequiredPayerTaxNumberField(Form.Parse(existingForm.Config));
+        await AssertNoPointOfSaleAppsCreated();
     }
 
     [Fact(Timeout = TestUtils.TestTimeout)]
@@ -249,9 +290,7 @@ public class PixSettingsTests : PlaywrightBaseTest
         var forms = await formDataService.GetForms(Tester.StoreId!);
         var repairedForm = Assert.Single(forms, form => form.Name == "DePix P2P checkout");
         var parsedForm = Form.Parse(repairedForm.Config);
-        var depixAddressField = parsedForm.GetFieldByFullName("depixAddress");
-        Assert.NotNull(depixAddressField);
-        Assert.True(depixAddressField!.Required);
+        AssertRequiredP2PFields(parsedForm);
         Assert.NotNull(parsedForm.GetFieldByFullName("customerNote"));
 
         var apps = (await appService.GetApps(PointOfSaleAppType.AppType))
@@ -259,6 +298,44 @@ public class PixSettingsTests : PlaywrightBaseTest
             .ToList();
         var updatedP2PPos = Assert.Single(apps);
         Assert.Equal(repairedForm.Id, updatedP2PPos.GetSettings<PointOfSaleSettings>().FormId);
+    }
+
+    [Fact(Timeout = TestUtils.TestTimeout)]
+    [Trait("Category", "PlaywrightUITest")]
+    public async Task RepairsExistingPixIdentificationForm()
+    {
+        await InitializeStoreOwnerAsync();
+        await SeedValidStorePixConfigAsync();
+
+        var formDataService = Server.PayTester.GetService<FormDataService>();
+        var customForm = new Form();
+        customForm.Fields.Add(Field.Create(
+            "Customer note",
+            "customerNote",
+            null,
+            false,
+            "Optional note."));
+        var brokenForm = new FormData
+        {
+            StoreId = Tester.StoreId!,
+            Name = "DePix payer identification",
+            Config = customForm.ToString()
+        };
+        await formDataService.AddOrUpdateForm(brokenForm);
+
+        await GoToPixSettingsAsync();
+
+        await Page.Locator("#IsEnabled").SetCheckedAsync(true);
+        await Page.GetByRole(AriaRole.Button, new() { Name = "Save" }).ClickAsync();
+
+        await Tester.FindAlertMessage(partialText: "DePix payer identification form was updated");
+
+        var forms = await formDataService.GetForms(Tester.StoreId!);
+        var repairedForm = Assert.Single(forms, form => form.Name == "DePix payer identification");
+        var parsedForm = Form.Parse(repairedForm.Config);
+        AssertRequiredPayerTaxNumberField(parsedForm);
+        Assert.NotNull(parsedForm.GetFieldByFullName("customerNote"));
+        await AssertNoPointOfSaleAppsCreated();
     }
 
     [Fact(Timeout = TestUtils.TestTimeout)]
@@ -284,5 +361,41 @@ public class PixSettingsTests : PlaywrightBaseTest
         Assert.True(storeConfig!.IsEnabled);
         Assert.Null(storeConfig.EncryptedApiKey);
         Assert.Null(storeConfig.WebhookSecretHashHex);
+        await AssertPixIdentificationFormReady();
+        await AssertNoPointOfSaleAppsCreated();
+    }
+
+    private async Task AssertPixIdentificationFormReady()
+    {
+        var formDataService = Server.PayTester.GetService<FormDataService>();
+        var forms = await formDataService.GetForms(Tester.StoreId!);
+        var formData = Assert.Single(forms, form => form.Name == "DePix payer identification");
+        var form = Form.Parse(formData.Config);
+        AssertRequiredPayerTaxNumberField(form);
+    }
+
+    private async Task AssertNoPointOfSaleAppsCreated()
+    {
+        var appService = Server.PayTester.GetService<AppService>();
+        var apps = (await appService.GetApps(PointOfSaleAppType.AppType))
+            .Where(app => app.StoreDataId == Tester.StoreId)
+            .ToList();
+        Assert.Empty(apps);
+    }
+
+    private static void AssertRequiredP2PFields(Form form)
+    {
+        var depixAddressField = form.GetFieldByFullName("depixAddress");
+        Assert.NotNull(depixAddressField);
+        Assert.True(depixAddressField!.Required);
+
+        AssertRequiredPayerTaxNumberField(form);
+    }
+
+    private static void AssertRequiredPayerTaxNumberField(Form form)
+    {
+        var taxNumberField = form.GetFieldByFullName("endUserTaxNumber");
+        Assert.NotNull(taxNumberField);
+        Assert.True(taxNumberField!.Required);
     }
 }

@@ -27,6 +27,7 @@ public class PixPaymentMethodHandler(
     : IPaymentMethodHandler, IHasNetwork
 {
     private const string P2PDepixAddressMetadataKey = "depixAddress";
+    private const string EndUserTaxNumberMetadataKey = "endUserTaxNumber";
 
     /// <summary>
     /// The payment method ID for Pix
@@ -80,8 +81,15 @@ public class PixPaymentMethodHandler(
 
         using var client = depixService.CreateDepixClient(apiKey);
 
+        var metadata = context.InvoiceEntity.Metadata?.AdditionalData;
+        var formValues = TryParseFormResponse(GetCurrentFormResponse());
+        var endUserTaxNumber = ResolvePayerTaxNumber(metadata, formValues);
+
         string? p2PDestinationAddress = null;
-        var p2PMode = pixCfg.P2PMode && TryGetP2PDestinationAddress(context, out p2PDestinationAddress);
+        var p2PMode = pixCfg.P2PMode && TryGetP2PDestinationAddress(
+            metadata,
+            metadata?.ContainsKey(P2PDepixAddressMetadataKey) is true ? null : formValues,
+            out p2PDestinationAddress);
         string address;
 
         string? depixSplitAddress = null;
@@ -114,6 +122,7 @@ public class PixPaymentMethodHandler(
             address, 
             pixCfg,
             effectiveConfig.UseWhitelist,
+            endUserTaxNumber,
             CancellationToken.None,
             depixSplitAddress,
             p2PCommissionPercent);
@@ -121,24 +130,15 @@ public class PixPaymentMethodHandler(
         depixService.ApplyPromptDetails(context, deposit, address, amountInCents, p2PMode, depixSplitAddress, p2PCommissionPercent);
     }
 
-    private bool TryGetP2PDestinationAddress(PaymentMethodContext context, out string? address)
-    {
-        var metadata = context.InvoiceEntity.Metadata?.AdditionalData;
-        return TryGetP2PDestinationAddress(
-            metadata,
-            metadata?.ContainsKey(P2PDepixAddressMetadataKey) is true ? null : GetCurrentFormResponse(),
-            out address);
-    }
-
     private static bool TryGetP2PDestinationAddress(
         IDictionary<string, JToken>? metadata,
-        string? formResponse,
+        JObject? formValues,
         out string? address)
     {
         address = null;
         var token = metadata is not null && metadata.TryGetValue(P2PDepixAddressMetadataKey, out var value)
             ? value
-            : TryGetP2PDestinationAddressFromFormResponse(formResponse);
+            : formValues?.GetValue(P2PDepixAddressMetadataKey);
 
         if (token is null)
             return false;
@@ -167,20 +167,52 @@ public class PixPaymentMethodHandler(
             : null;
     }
 
-    private static JToken? TryGetP2PDestinationAddressFromFormResponse(string? formResponse)
+    private static string ResolvePayerTaxNumber(
+        IDictionary<string, JToken>? metadata,
+        JObject? formValues)
+    {
+        var taxNumber = TryGetString(metadata, EndUserTaxNumberMetadataKey) ??
+                        TryGetString(formValues?.GetValue(EndUserTaxNumberMetadataKey));
+
+        if (string.IsNullOrWhiteSpace(taxNumber))
+        {
+            throw new PaymentMethodUnavailableException(
+                "Pix requires payer CPF/CNPJ in invoice metadata or POS form field endUserTaxNumber. Send it as a string.");
+        }
+
+        return taxNumber.Trim();
+    }
+
+    private static JObject? TryParseFormResponse(string? formResponse)
     {
         if (string.IsNullOrWhiteSpace(formResponse))
             return null;
 
         try
         {
-            var values = JObject.Parse(formResponse);
-            return values.TryGetValue(P2PDepixAddressMetadataKey, out var token) ? token : null;
+            return JObject.Parse(formResponse);
         }
         catch (JsonReaderException)
         {
             return null;
         }
+    }
+
+    private static string? TryGetString(IDictionary<string, JToken>? values, string key)
+    {
+        if (values is null || !values.TryGetValue(key, out var token))
+            return null;
+
+        return TryGetString(token);
+    }
+
+    private static string? TryGetString(JToken? token)
+    {
+        if (token?.Type != JTokenType.String)
+            return null;
+
+        var value = token.Value<string>()?.Trim();
+        return string.IsNullOrWhiteSpace(value) ? null : value;
     }
 
     /// <summary>

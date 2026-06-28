@@ -38,6 +38,8 @@ public class PixController(
     : Controller
 {
     private const string P2PDepixAddressFieldName = "depixAddress";
+    private const string EndUserTaxNumberFieldName = "endUserTaxNumber";
+    private const string PixIdentificationFormName = "DePix payer identification";
     private const string P2PDefaultFormName = "DePix P2P checkout";
     private const string P2PDefaultPosName = "DePix P2P";
     private StoreData StoreData => HttpContext.GetStoreData();
@@ -219,6 +221,9 @@ public class PixController(
 
         await storeRepository.UpdateStore(store);
 
+        var pixFormSetup = willEnable
+            ? await EnsurePixIdentificationFormAsync(store.Id)
+            : null;
         var p2PPosSetup = viewModel.P2PMode
             ? await EnsureP2PPointOfSaleAsync(store.Id)
             : null;
@@ -226,14 +231,57 @@ public class PixController(
         if (!string.IsNullOrEmpty(oneShotSecretToDisplay))
             TempData["OneShotSecret"] = oneShotSecretToDisplay;
 
-        TempData[WellKnownTempData.SuccessMessage] = p2PPosSetup is { PosAppCreated: true }
-            ? "Pix configuration applied. DePix P2P POS app was created."
-            : p2PPosSetup is { PosAppUpdated: true }
-                ? "Pix configuration applied. DePix P2P POS app was updated."
-            : viewModel.P2PMode
-                ? "Pix configuration applied. DePix P2P POS app is ready."
-                : "Pix configuration applied";
+        var successMessage = "Pix configuration applied.";
+        if (pixFormSetup is { FormCreated: true })
+            successMessage += " DePix payer identification form was created.";
+        else if (pixFormSetup is { FormUpdated: true })
+            successMessage += " DePix payer identification form was updated.";
+
+        if (p2PPosSetup is { PosAppCreated: true })
+            successMessage += " DePix P2P POS app was created.";
+        else if (p2PPosSetup is { PosAppUpdated: true })
+            successMessage += " DePix P2P POS app was updated.";
+        else if (viewModel.P2PMode)
+            successMessage += " DePix P2P POS app is ready.";
+
+        TempData[WellKnownTempData.SuccessMessage] = successMessage;
         return RedirectToAction(nameof(PixSettings), new { storeId = StoreData.Id, walletId });
+    }
+
+    private async Task<PixFormSetupResult> EnsurePixIdentificationFormAsync(string storeId)
+    {
+        var forms = await formDataService.GetForms(storeId);
+        var existing = forms.FirstOrDefault(form => string.Equals(form.Name, PixIdentificationFormName, StringComparison.Ordinal));
+        if (existing is not null)
+        {
+            if (FormDataHasRequiredPayerTaxNumberField(existing))
+                return new PixFormSetupResult(false, false);
+
+            if (TryParseForm(existing, out var form))
+            {
+                EnsurePayerTaxNumberField(form);
+                existing.Config = form.ToString();
+            }
+            else
+            {
+                existing.Config = CreatePixIdentificationForm().ToString();
+            }
+
+            await formDataService.AddOrUpdateForm(existing);
+            return new PixFormSetupResult(false, true);
+        }
+
+        if (forms.Any(FormDataHasRequiredPayerTaxNumberField))
+            return new PixFormSetupResult(false, false);
+
+        var formData = new FormData
+        {
+            StoreId = storeId,
+            Name = PixIdentificationFormName,
+            Config = CreatePixIdentificationForm().ToString()
+        };
+        await formDataService.AddOrUpdateForm(formData);
+        return new PixFormSetupResult(true, false);
     }
 
     private async Task<P2PPosSetupResult> EnsureP2PPointOfSaleAsync(string storeId)
@@ -291,19 +339,17 @@ public class PixController(
         var existing = forms.FirstOrDefault(form => string.Equals(form.Name, P2PDefaultFormName, StringComparison.Ordinal));
         if (existing is not null)
         {
-            if (!FormDataHasP2PAddressField(existing))
+            if (FormDataHasRequiredP2PFields(existing)) return existing.Id;
+            if (TryParseForm(existing, out var form))
             {
-                if (TryParseForm(existing, out var form))
-                {
-                    EnsureP2PAddressField(form);
-                    existing.Config = form.ToString();
-                }
-                else
-                {
-                    existing.Config = CreateP2PAddressForm().ToString();
-                }
-                await formDataService.AddOrUpdateForm(existing);
+                EnsureP2PFields(form);
+                existing.Config = form.ToString();
             }
+            else
+            {
+                existing.Config = CreateP2PForm().ToString();
+            }
+            await formDataService.AddOrUpdateForm(existing);
             return existing.Id;
         }
 
@@ -311,16 +357,23 @@ public class PixController(
         {
             StoreId = storeId,
             Name = P2PDefaultFormName,
-            Config = CreateP2PAddressForm().ToString()
+            Config = CreateP2PForm().ToString()
         };
         await formDataService.AddOrUpdateForm(formData);
         return formData.Id;
     }
 
-    private static bool FormDataHasP2PAddressField(FormData? formData)
+    private static bool FormDataHasRequiredP2PFields(FormData? formData)
     {
         return TryParseForm(formData, out var form) &&
-               form.GetFieldByFullName(P2PDepixAddressFieldName) is { Required: true };
+               form.GetFieldByFullName(P2PDepixAddressFieldName) is { Required: true } &&
+               form.GetFieldByFullName(EndUserTaxNumberFieldName) is { Required: true };
+    }
+
+    private static bool FormDataHasRequiredPayerTaxNumberField(FormData? formData)
+    {
+        return TryParseForm(formData, out var form) &&
+               form.GetFieldByFullName(EndUserTaxNumberFieldName) is { Required: true };
     }
 
     private static bool TryParseForm(FormData? formData, out Form form)
@@ -340,26 +393,56 @@ public class PixController(
         }
     }
 
-    private static Form CreateP2PAddressForm()
+    private static Form CreateP2PForm()
     {
         var form = new Form();
-        EnsureP2PAddressField(form);
+        EnsureP2PFields(form);
         return form;
     }
 
-    private static void EnsureP2PAddressField(Form form)
+    private static Form CreatePixIdentificationForm()
     {
-        if (form.GetFieldByFullName(P2PDepixAddressFieldName) is not null)
-            return;
-
-        form.Fields.Add(Field.Create(
-            "DePix address",
-            P2PDepixAddressFieldName,
-            null,
-            true,
-            "Buyer Liquid/DePix address that receives the purchased DePix."));
+        var form = new Form();
+        EnsurePayerTaxNumberField(form);
+        return form;
     }
 
+    private static void EnsureP2PFields(Form form)
+    {
+        EnsureRequiredField(
+            form,
+            "DePix address",
+            P2PDepixAddressFieldName,
+            "Buyer Liquid/DePix address that receives the purchased DePix.");
+        EnsureRequiredField(
+            form,
+            "CPF/CNPJ",
+            EndUserTaxNumberFieldName,
+            "CPF/CNPJ of the Pix payer.");
+    }
+
+    private static void EnsurePayerTaxNumberField(Form form)
+    {
+        EnsureRequiredField(
+            form,
+            "CPF/CNPJ",
+            EndUserTaxNumberFieldName,
+            "CPF/CNPJ of the Pix payer. Send as text to preserve leading zeros.");
+    }
+
+    private static void EnsureRequiredField(Form form, string label, string name, string helpText)
+    {
+        var existing = form.GetFieldByFullName(name);
+        if (existing is not null)
+        {
+            existing.Required = true;
+            return;
+        }
+
+        form.Fields.Add(Field.Create(label, name, null, true, helpText));
+    }
+
+    private sealed record PixFormSetupResult(bool FormCreated, bool FormUpdated);
     private sealed record P2PPosSetupResult(string FormId, bool PosAppCreated, bool PosAppUpdated);
 
     /// <summary>
