@@ -12,8 +12,6 @@ Accept **Pix** payments in your BTCPay Server store and receive funds in **DePix
 * Provides a **Pix Transactions** page to monitor deposits and statuses.
 * Settles funds to your **DePix (Liquid) wallet**.
 
-![DePix plugin installed](docs/img/depix-plugin-installed.png)
-
 ## Requirements
 
 * BTCPay Server 2.x
@@ -21,6 +19,7 @@ Accept **Pix** payments in your BTCPay Server store and receive funds in **DePix
 
 ## Quick Start
 
+![DePix plugin installed](docs/img/depix-plugin-installed.png)
 1. Install the plugin in BTCPay: **Plugins -> Manage Plugins -> DePix**.
 2. Restart BTCPay when prompted.
 3. Create or connect your **DePix wallet**.
@@ -33,8 +32,6 @@ Full setup details are in [Configuration](docs/configuration.md).
 ## Checkout Requirement
 
 Eulen requires every Pix deposit QR code to identify the payer. This plugin sends the payer CPF/CNPJ to `/deposit` as `endUserTaxNumber`.
-
-Send CPF/CNPJ as a JSON string, not a number, because valid CPF/CNPJ values can start with `0`:
 
 ```json
 {
@@ -54,12 +51,6 @@ See [Checkout Requirements](docs/checkout-requirements.md) for invoice, API, and
 * [Checkout Requirements](docs/checkout-requirements.md): Eulen compliance, `endUserTaxNumber`, invoices, API, and POS forms.
 * [P2P Mode](docs/p2p.md): selling DePix through the plugin-owned P2P POS.
 * [Spending DePix](docs/spending-depix.md): Aqua/SamRock, hot wallet, Liquid+, and `elements-cli`.
-
-## Screenshots
-
-![Pix Settings](docs/img/pix-settings.png)
-
-![Pix Invoice](docs/img/pix-invoice.png)
 
 ## FAQ
 
